@@ -122,6 +122,10 @@ export function remoteSessionPlugin() {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    // Prevent 5400 RPM mechanical HDD thrashing with browser temporary disk cache files
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
     if (req.method === 'OPTIONS') {
       res.statusCode = 204;

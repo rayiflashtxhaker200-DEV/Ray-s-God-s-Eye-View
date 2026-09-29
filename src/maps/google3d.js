@@ -1,31 +1,28 @@
-const clean = (value) => String(value || '').trim();
+import { getOptimalPerformanceProfile } from '../hardwareProfile.js';
 
-/**
- * Decide which map provider can deliver the best startup experience.
- * @param {{googleApiKey?: string, cesiumToken?: string}} credentials
- * @returns {'google-direct'|'google-ion'|'osm'}
- */
-export function selectMapStartupRoute({
-  googleApiKey = '',
-  cesiumToken = '',
+function clean(value) {
+  return typeof value === 'string' && value.trim().length ? value.trim() : null;
+}
+
+/** Route Google 3D tile loading based on provided credentials. */
+export async function selectMapStartupRoute({
+  googleApiKey,
+  cesiumToken,
 } = {}) {
-  if (clean(googleApiKey)) return 'google-direct';
-  if (clean(cesiumToken)) return 'google-ion';
+  const googleKey = clean(googleApiKey);
+  const ionToken = clean(cesiumToken);
+  if (googleKey) return 'google-direct';
+  if (ionToken) return 'google-ion';
   return 'osm';
 }
 
 /**
- * Load Google Photorealistic 3D Tiles through direct Google access when
- * configured, otherwise through Cesium ion's hosted Google asset. If the
- * direct request fails and an ion token is available, ion is the recovery path.
- *
- * @param {object} Cesium
- * @param {{googleApiKey?: string, cesiumToken?: string}} credentials
- * @returns {Promise<{tileset: object|null, route: 'google-direct'|'google-ion'|'osm', errors: Error[]}>}
+ * Load Google 3D Tiles, falling back from direct to Ion to OSM on failure.
+ * Retains errors encountered along the way.
  */
 export async function loadPhotorealisticTileset(
   Cesium,
-  { googleApiKey = '', cesiumToken = '' } = {},
+  { googleApiKey, cesiumToken } = {},
 ) {
   const googleKey = clean(googleApiKey);
   const ionToken = clean(cesiumToken);
@@ -49,20 +46,27 @@ export async function loadPhotorealisticTileset(
   return { tileset: null, route: 'osm', errors };
 }
 
-/** Pass credentials to the source instead of changing SDK-wide defaults. */
-export function createGoogleDirectTileset(Cesium, key) {
+/** Pass credentials to the source with low-spec hardware optimization defaults. */
+export function createGoogleDirectTileset(Cesium, key, options = {}) {
   key = clean(key);
   if (!key) throw new Error('Google 3D requires an explicit browser key');
+  const profile = getOptimalPerformanceProfile();
   return Cesium.createGooglePhotorealistic3DTileset({
     key,
     onlyUsingWithGoogleGeocoder: true,
+    cacheBytes: profile.tileCacheBytes,
+    maximumCacheOverflowBytes: profile.maximumCacheOverflowBytes,
+    maximumScreenSpaceError: profile.maximumScreenSpaceError,
+    skipLevelOfDetail: profile.isLowSpec,
+    cullWithChildrenBounds: profile.isLowSpec,
+    ...options,
   });
 }
 
 export async function createGoogleIonTileset(
   Cesium,
   accessToken,
-  { signal } = {},
+  { signal, ...options } = {},
 ) {
   accessToken = clean(accessToken);
   if (!accessToken)
@@ -72,10 +76,14 @@ export async function createGoogleIonTileset(
     accessToken,
   });
   signal?.throwIfAborted();
-  // Match the installed SDK's Google helper rendering/cache defaults.
+  const profile = getOptimalPerformanceProfile();
   return Cesium.Cesium3DTileset.fromUrl(resource, {
-    cacheBytes: 1536 * 1024 * 1024,
-    maximumCacheOverflowBytes: 1024 * 1024 * 1024,
+    cacheBytes: profile.tileCacheBytes,
+    maximumCacheOverflowBytes: profile.maximumCacheOverflowBytes,
+    maximumScreenSpaceError: profile.maximumScreenSpaceError,
+    skipLevelOfDetail: profile.isLowSpec,
+    cullWithChildrenBounds: profile.isLowSpec,
     enableCollision: true,
+    ...options,
   });
 }

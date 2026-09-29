@@ -193,6 +193,7 @@ export function startPcRemoteListener({
   app = (typeof window !== 'undefined' ? window.__godsEyeView : null),
 } = {}) {
   let lastTimestamp = Date.now();
+  let lastActivityTime = Date.now();
   let stopped = false;
   let timerId = null;
 
@@ -207,6 +208,7 @@ export function startPcRemoteListener({
       });
 
       if (data?.commands?.length) {
+        lastActivityTime = Date.now();
         for (const cmd of data.commands) {
           if (cmd.timestamp > lastTimestamp) {
             lastTimestamp = cmd.timestamp;
@@ -221,7 +223,20 @@ export function startPcRemoteListener({
       // Silently retry on next poll cycle
     } finally {
       if (!stopped) {
-        timerId = setTimeout(poll, pollInterval);
+        // Adaptive polling: relieves low-spec dual-core CPUs and 5400 RPM HDDs
+        const isHidden = typeof document !== 'undefined' && document.hidden;
+        const isIdle = Date.now() - lastActivityTime > 4000;
+        let nextDelay = pollInterval;
+
+        if (isHidden) {
+          nextDelay = 5000;
+        } else if (isIdle) {
+          nextDelay = Math.max(pollInterval, 2500);
+        } else {
+          nextDelay = pollInterval;
+        }
+
+        timerId = setTimeout(poll, nextDelay);
       }
     }
   }

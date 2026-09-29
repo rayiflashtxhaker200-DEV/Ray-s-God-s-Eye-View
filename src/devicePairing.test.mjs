@@ -12,6 +12,7 @@ import {
   saveDestinationsForPassword,
   DEFAULT_PASSWORD_PRESETS,
 } from './customDestinations.js';
+import { getOptimalPerformanceProfile } from './hardwareProfile.js';
 import { remoteSessionStore } from '../server/providers/remote-session.js';
 
 test('detects mobile remote mode from query parameters', () => {
@@ -147,4 +148,17 @@ test('executes remote commands and dispatches on master application', () => {
   assert.equal(executeRemoteCommand({ action: 'stop' }, mockApp), true);
   assert.equal(calls.stopDirector, true);
   assert.equal(calls.cancelFlight, true);
+});
+
+test('provides hardware optimization profile for low-spec Dell i5 1st Gen and AMD E-450', () => {
+  const profile = getOptimalPerformanceProfile();
+  assert.ok(profile);
+  // Target framerate capped to avoid 100% CPU lockup on dual-core
+  assert.ok(profile.targetFrameRate <= 60);
+  // Tile cache should not exceed 1GB (256MB on low-spec) to prevent 5400 RPM HDD paging
+  assert.ok(profile.tileCacheBytes <= 1024 * 1024 * 1024);
+  // Screen space error tuned to cut down network data load
+  assert.ok(profile.maximumScreenSpaceError >= 16);
+  // MSAA samples safe for legacy GPUs
+  assert.ok(profile.msaaSamples <= 2);
 });

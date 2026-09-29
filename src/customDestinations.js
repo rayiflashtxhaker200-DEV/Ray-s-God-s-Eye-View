@@ -7,6 +7,13 @@
  *    - Allows saving custom sets per password on PC and loading them instantly on mobile.
  */
 
+import {
+  isLowSpecDevice,
+  getOptimalPerformanceProfile,
+  applyHardwareOptimizations,
+  STORAGE_HARDWARE_MODE_KEY,
+} from './hardwareProfile.js';
+
 // Key constants
 export const STORAGE_USER_CODE_KEY = 'gev_shared_user_code';
 export const STORAGE_DESTINATIONS_KEY = 'gev_custom_destinations';
@@ -376,6 +383,28 @@ export function mountPcPairingAndDestinationsPanel(viewer) {
         </div>
       </div>
 
+      <!-- Variable 3: Optimizacion de Servidor y PC Antigua (Dell i5 1ra Gen, AMD E-450, HDD 298GB) -->
+      <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #10b981; font-weight: 600; margin-bottom: 6px;">
+          ⚡ 3. Optimización para PC / Servidor Antiguo (Core i5 1ra Gen / AMD E-450 / HDD 5400 RPM)
+        </div>
+        <p style="font-size: 12px; color: #94a3b8; margin: 0 0 10px;">
+          Evita que la máquina se congele ("trabe"): limita a 30 FPS para evitar sobrecalentamiento, reduce la caché de tiles a 256 MB para no saturar el HDD de 298 GB con archivos de paginación, y desactiva MSAA pesado en gráficas Radeon 5000 / E-450.
+        </p>
+        <div style="display: flex; gap: 8px;">
+          <button id="gev-btn-hw-low" style="flex: 1; background: #064e3b; border: 1px solid #059669; color: #34d399; border-radius: 6px; padding: 8px; font-size: 11px; font-weight: 600; cursor: pointer;">
+            ⚡ Modo Ahorro / PC Antigua
+          </button>
+          <button id="gev-btn-hw-auto" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #cbd5e1; border-radius: 6px; padding: 8px; font-size: 11px; font-weight: 600; cursor: pointer;">
+            Auto (Recomendado)
+          </button>
+          <button id="gev-btn-hw-high" style="flex: 1; background: #1e293b; border: 1px solid #334155; color: #94a3b8; border-radius: 6px; padding: 8px; font-size: 11px; font-weight: 600; cursor: pointer;">
+            Alta Calidad
+          </button>
+        </div>
+        <div id="gev-hw-feedback" style="font-size: 11px; color: #34d399; margin-top: 6px; display: none;"></div>
+      </div>
+
       <!-- Destinos del perfil actual -->
       <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
@@ -592,6 +621,28 @@ export function mountPcPairingAndDestinationsPanel(viewer) {
     renderList();
     syncCurrentDestinations();
   });
+
+  // Hardware profile buttons
+  const hwFeedback = modal.querySelector('#gev-hw-feedback');
+  function updateHardwareUI(mode) {
+    localStorage.setItem(STORAGE_HARDWARE_MODE_KEY, mode);
+    applyHardwareOptimizations(viewer);
+    const prof = getOptimalPerformanceProfile();
+    if (hwFeedback) {
+      hwFeedback.style.display = 'block';
+      if (mode === 'low') {
+        hwFeedback.textContent = `⚡ Modo PC Antigua activo: 30 FPS, caché de 256MB, antialiasing ligero (evita congelar HDD de 298GB y CPU i5/E-450).`;
+      } else if (mode === 'high') {
+        hwFeedback.textContent = `🚀 Modo Alta Calidad activo: 60 FPS, caché completa.`;
+      } else {
+        hwFeedback.textContent = `🔍 Modo Automático: Detectado ${prof.isLowSpec ? 'Hardware Legacy (Modo Ahorro)' : 'Hardware Estándar'}.`;
+      }
+    }
+  }
+
+  modal.querySelector('#gev-btn-hw-low').addEventListener('click', () => updateHardwareUI('low'));
+  modal.querySelector('#gev-btn-hw-auto').addEventListener('click', () => updateHardwareUI('auto'));
+  modal.querySelector('#gev-btn-hw-high').addEventListener('click', () => updateHardwareUI('high'));
 
   // Manual sync button
   modal.querySelector('#gev-btn-sync-all').addEventListener('click', syncCurrentDestinations);

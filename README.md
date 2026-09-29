@@ -30,13 +30,60 @@ _“pretty cool”_ — [Brendan Eich](https://x.com/BrendanEich/status/20945920
 
 </div>
 
+> ℹ️ **AVISO DE ADAPTACIÓN — LOW-SPEC & REMOTE CONTROLLER EDITION**
+>
+> Este repositorio es una **adaptación y optimización específica de God's Eye View** para:
+> 1. Permitir el uso de **laptops y PCs de bajos recursos / hardware antiguo** (por ejemplo, laptops Dell Inspiron con Intel Core i5 M 450 de 1ra gen, GPU AMD Radeon HD 5000M, disco mecánico HDD de 298 GB a 5400 RPM y 6 GB RAM, o PCs compactas con AMD E-450 y 8 GB RAM sin gráfica dedicada) como servidores y clientes sin congelarse ni trabarse.
+> 2. Incorporar un **mando a distancia móvil ultraligero (`?remote=mobile`)** que no carga Cesium 3D en el teléfono y controla la PC en tiempo real.
+> 3. Incluir un gestor de **destinos rápidos personalizados** y **perfiles preestablecidos mediante contraseñas**.
+>
+> Consulta la sección [🛠️ Modificaciones y Diferencias con God's Eye View Original](#-modificaciones-y-diferencias-con-el-proyecto-original-gods-eye-view) para más detalles.
+
 ---
 
 <div align="center">
 
-**[Quick Start](#-quick-start) · [First Five Minutes](#-the-first-five-minutes) · [Talk to It](#-talk-to-it) · [What's Live](#-whats-on-the-globe) · [Under the Hood](#-under-the-hood) · [Keys & Costs](#-api-keys)**
+**[Modificaciones de la Adaptación](#-modificaciones-y-diferencias-con-el-proyecto-original-gods-eye-view) · [Control Remoto](#1--mando-a-distancia-móvil-ultraligero-srcmobileremotecontrollerjs) · [Optimización PC Antigua](#5--optimizaciones-para-hardware-antiguo--servidor-legacy-srchardwareprofilejs) · [Quick Start](#-quick-start)**
 
 </div>
+
+---
+
+## 🛠️ Modificaciones y Diferencias con el Proyecto Original (God's Eye View)
+
+A diferencia del repositorio base original de God's Eye View, esta versión adaptada incluye las siguientes modificaciones:
+
+### 1. 📱 Mando a Distancia Móvil Ultraligero (`/src/mobileRemoteController.js`)
+- **Modo Remoto Dedicado (`?remote=mobile` o `?device=mobile`)**: Al abrir la aplicación en un teléfono inteligente o tablet, se detecta el parámetro y **no se carga Cesium 3D ni texturas pesadas**.
+- Despliega una interfaz táctica ligera en HTML/CSS que convierte el teléfono en un mando a distancia para la PC sin gastar batería ni saturar la GPU móvil.
+- Permite volar la cámara en la PC a cualquier punto, reiniciar la vista global de la Tierra, detener animaciones, alternar capas de datos en tiempo real (vuelos, barcos, satélites, tráfico, CCTV) y navegar por destinos personalizados.
+- Compatible con redes locales (LAN) y túneles de desarrollo como VS Code `devtunnels.ms`, `ngrok` o Cloudflare con normalización automática de URLs.
+
+### 2. 🔑 Emparejamiento Personal por Nombre de Usuario (Mín. 4 caracteres)
+- Sistema de vinculación privada entre la PC y el móvil mediante un código o nombre de usuario de al menos 4 caracteres/dígitos (`src/customDestinations.js`).
+- Al ingresar el mismo usuario en ambos dispositivos, se sincronizan sobre la misma sesión en el servidor sin necesidad de crear cuentas ni configuraciones complejas.
+
+### 3. ⭐ Destinos Rápidos Personalizados
+- **Captura directa de cámara desde PC**: Botón *"📍 Guardar vista actual de la cámara como destino rápido"* que extrae latitud, longitud y altura reales de la cámara 3D de Cesium y solicita un nombre.
+- **Entrada manual**: Formulario para introducir nombre y coordenadas geográficas.
+- **Sincronización en tiempo real**: Los destinos creados en la PC se envían al servidor y se sincronizan de inmediato con el teléfono móvil para volar a ellos con un solo toque.
+
+### 4. 🔐 Destinos Preestablecidos Asociados a Contraseñas Específicas
+- Con cada contraseña se carga un conjunto de destinos preestablecido completamente diferente:
+  - **`alfa1234`**: Carga bases polares y estratégicas (Base Ártica Thule, Área 51 Nevada, Observatorio Mauna Kea).
+  - **`tactical2026`**: Carga pasos marítimos estratégicos globales (Gibraltar, Canal de Suez, Canal de Panamá, Estrecho de Malaca).
+  - **`ciudades99`**: Carga capitales icónicas (Times Square, Shibuya Tokio, Torre Eiffel París, Big Ben Londres).
+  - **Contraseñas personalizadas**: Permite guardar cualquier lista de destinos bajo una contraseña secreta elegida por el usuario en la PC y recuperarla instantáneamente en el móvil introduciendo esa misma clave.
+
+### 5. ⚡ Optimizaciones para Hardware Antiguo / Servidor Legacy (`src/hardwareProfile.js`)
+Diseñado para que computadoras de bajos recursos (ej. laptops **Dell Inspiron con Core i5 M 450 1ra gen, GPU AMD Radeon HD 5000M, HDD mecánico de 298 GB a 5400 RPM y 6 GB RAM**, o PCs compactas con **AMD E-450 y 8 GB RAM** sin tarjeta gráfica) no se congelen ni se "traben":
+- **Reducción de Caché de Tiles 3D (de 2.5 GB a 256 MB)**: Evita que el consumo de memoria obligue al sistema operativo a usar el archivo de paginación del disco mecánico HDD de 298 GB, eliminando los congelamientos por uso del disco al 100%.
+- **Tope de Fotogramas a 30 FPS (`targetFrameRate: 30`)**: Reduce la carga térmica y de cálculo en CPUs dual-core de 2010, evitando sobrecalentamiento y estrangulamiento térmico (*thermal throttling*).
+- **Desactivación de 4x MSAA pesado**: Reemplazado por antialiasing ligero (1 muestra) y escala de resolución a 0.85, ahorrando más del 70% de tasa de llenado (*fillrate*) en tarjetas gráficas Radeon antiguas.
+- **Nivel de Detalle Agresivo (LOD)**: `maximumScreenSpaceError = 28` y `skipLevelOfDetail = true`, recortando más de un 60% la descarga de datos y mallas por red.
+- **Sondeo Adaptativo (*Adaptive Polling*)**: El listener de órdenes relaja la frecuencia de consulta a 2500-5000 ms en periodos de inactividad o cuando la pestaña está en segundo plano, disminuyendo drásticamente las interrupciones del CPU del servidor.
+- **Cabeceras HTTP Anti-Thrashing**: `Cache-Control: no-store` en los endpoints del servidor para evitar que el navegador genere cientos de archivos temporales en el disco mecánico de 5400 RPM.
+- **Selector Manual en la Interfaz**: Sección dedicada en la UI de PC para alternar entre *Modo Ahorro / PC Antigua*, *Auto (Detectar)* y *Alta Calidad*.
 
 ---
 

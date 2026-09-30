@@ -7,6 +7,12 @@
  *    - Allows saving custom sets per password on PC and loading them instantly on mobile.
  */
 
+import * as Cesium from 'cesium';
+import {
+  holdContinuousRender,
+  releaseContinuousRender,
+  governorRequestRender,
+} from './renderGovernor.js';
 import {
   isLowSpecDevice,
   getOptimalPerformanceProfile,
@@ -85,6 +91,11 @@ export function setSharedUserCode(code) {
   }
   const clean = code.trim();
   getStorage().setItem(STORAGE_USER_CODE_KEY, clean);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('gev:user-code-changed', { detail: clean }));
+    const input = document.getElementById('gev-input-pc-user');
+    if (input && input.value !== clean) input.value = clean;
+  }
   return clean;
 }
 
@@ -489,12 +500,20 @@ export function mountPcPairingAndDestinationsPanel(viewer) {
         const lon = Number(b.getAttribute('data-lon'));
         const height = Number(b.getAttribute('data-height'));
         if (viewer?.camera?.flyTo) {
-          if (typeof Cesium !== 'undefined' && Cesium.Cartesian3) {
-            viewer.camera.flyTo({
-              destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
-              duration: 2.0,
-            });
-          }
+          holdContinuousRender('custom-dest-fly');
+          governorRequestRender();
+          viewer.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
+            duration: 2.0,
+            complete: () => {
+              releaseContinuousRender('custom-dest-fly');
+              governorRequestRender();
+            },
+            cancel: () => {
+              releaseContinuousRender('custom-dest-fly');
+              governorRequestRender();
+            },
+          });
         }
       });
     });

@@ -18,6 +18,7 @@ import { adsbLolProxy } from './aircraft/adsb-lol.js';
 import { aisLiveProxy } from './vessels/ais-live.js';
 import { trackBackfillProxies } from './aircraft/tracks.js';
 import { openAiRealtimeProxy } from './openai.js';
+import { geminiVoiceProxy } from './gemini.js';
 import { googlePlacesContextProxy } from './places.js';
 import { keySetupEndpoint } from '../standalone/key-setup.js';
 import { remoteSessionPlugin } from './remote-session.js';
@@ -45,6 +46,7 @@ function localProviderPlugins() {
     aisLiveProxy(),
     trackBackfillProxies(),
     openAiRealtimeProxy(),
+    geminiVoiceProxy(),
     googlePlacesContextProxy(),
     keySetupEndpoint(),
     remoteSessionPlugin(),

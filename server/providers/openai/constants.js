@@ -2,9 +2,9 @@ import { VOICE_MODELS } from '../../../src/voice/voiceCost.js';
 
 // Sourced from the shared voice-model registry so the client's cost estimate
 // can never be computed against a different model than the session runs on.
-const OPENAI_REALTIME_MODEL_DEFAULT = VOICE_MODELS.standard.id;
+const OPENAI_REALTIME_MODEL_DEFAULT = VOICE_MODELS.standard?.id || 'gpt-4o-realtime-preview';
 
-const OPENAI_REALTIME_MODEL_MINI_DEFAULT = VOICE_MODELS.mini.id;
+const OPENAI_REALTIME_MODEL_MINI_DEFAULT = VOICE_MODELS.mini?.id || 'gpt-4o-mini-realtime-preview';
 
 const OPENAI_REALTIME_VOICE_DEFAULT = 'marin';
 

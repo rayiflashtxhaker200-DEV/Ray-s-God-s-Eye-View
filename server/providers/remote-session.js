@@ -21,13 +21,14 @@ export const remoteSessionStore = {
     session.lastActiveAt = Date.now();
     const cmd = {
       id: `cmd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      sessionName,
       action: command.action,
       args: command.args || {},
       deviceName,
       timestamp: Date.now(),
     };
     session.commands.push(cmd);
-    if (session.commands.length > 100) {
+    if (session.commands.length > 50) {
       session.commands.shift();
     }
     return cmd;
@@ -88,12 +89,36 @@ export const remoteSessionStore = {
   },
 
   getSession(sessionName = 'default', since = 0, password = '') {
-    const session = remoteSessions.get(sessionName);
-    if (!session) return null;
+    let session = remoteSessions.get(sessionName);
     const sinceTime = Number(since) || 0;
-    const commands = sinceTime > 0
-      ? session.commands.filter((c) => c.timestamp > sinceTime)
-      : [...session.commands];
+    let commands = [];
+
+    if (session) {
+      commands = sinceTime > 0
+        ? session.commands.filter((c) => c.timestamp > sinceTime)
+        : [...session.commands];
+    }
+
+    // Auto-discovery fallback:
+    // If the polled session has no commands, check if another active session has recent commands
+    let resolvedSessionName = sessionName;
+    if (commands.length === 0) {
+      for (const [sName, s] of remoteSessions.entries()) {
+        if (sName !== sessionName) {
+          const pending = sinceTime > 0
+            ? s.commands.filter((c) => c.timestamp > sinceTime)
+            : [...s.commands];
+          if (pending.length > 0) {
+            commands = pending;
+            resolvedSessionName = sName;
+            session = s;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!session) return null;
 
     let customLocations = session.customLocations || [];
     if (password) {
@@ -101,7 +126,8 @@ export const remoteSessionStore = {
     }
 
     return {
-      sessionName,
+      sessionName: resolvedSessionName,
+      matchedSessionName: resolvedSessionName,
       devices: Array.from(session.devices.values()),
       commands,
       customLocations,

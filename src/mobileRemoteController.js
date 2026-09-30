@@ -5,12 +5,25 @@
  * Fully compatible with local servers, PC tunnels, and password-based destination presets.
  */
 
+import * as Cesium from 'cesium';
+import {
+  holdContinuousRender,
+  releaseContinuousRender,
+  governorRequestRender,
+} from './renderGovernor.js';
 import {
   validateUserCode,
   getDestinationsForPassword,
   getActivePassword,
   setActivePassword,
+  getSharedUserCode,
+  setSharedUserCode,
 } from './customDestinations.js';
+import { REALISMO_PRESENTATION_BLOCKS } from './realismoLocations.js';
+
+if (typeof window !== 'undefined' && !window.Cesium) {
+  window.Cesium = Cesium;
+}
 
 /**
  * Check if the current URL has mobile remote mode activated.
@@ -114,20 +127,30 @@ export function executeRemoteCommand(command, app = (typeof window !== 'undefine
   if (!command || !command.action) return false;
   const { action, args = {} } = command;
 
+  const viewer = app?.viewer || window.__godsEyeView?.viewer || (typeof window !== 'undefined' ? window.viewer : null);
+  const dataManager = app?.dataManager || window.__godsEyeView?.dataManager;
+  const sceneDirector = app?.sceneDirector || window.__godsEyeView?.sceneDirector;
+
+  console.info(`[RemoteCommand] Executing action: "${action}"`, args);
+
   switch (action) {
     case 'zoom_to_globe': {
-      if (app?.viewer?.camera?.flyTo) {
-        if (typeof Cesium !== 'undefined' && Cesium.Cartesian3) {
-          app.viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(0, 20, 20000000),
-            duration: 2.5,
-          });
-        } else {
-          app.viewer.camera.flyTo({
-            destination: { x: 0, y: 0, z: 20000000 },
-            duration: 2.5,
-          });
-        }
+      if (viewer?.camera?.flyTo) {
+        holdContinuousRender('remote-globe');
+        governorRequestRender();
+        const destination = Cesium.Cartesian3.fromDegrees(0, 20, 20000000);
+        viewer.camera.flyTo({
+          destination,
+          duration: 2.5,
+          complete: () => {
+            releaseContinuousRender('remote-globe');
+            governorRequestRender();
+          },
+          cancel: () => {
+            releaseContinuousRender('remote-globe');
+            governorRequestRender();
+          },
+        });
       }
       return true;
     }
@@ -135,19 +158,24 @@ export function executeRemoteCommand(command, app = (typeof window !== 'undefine
     case 'fly_to_location': {
       const lat = Number(args.lat ?? args.latitude ?? 0);
       const lon = Number(args.lon ?? args.longitude ?? 0);
-      const height = Number(args.height ?? 18000);
-      if (app?.viewer?.camera?.flyTo) {
-        if (typeof Cesium !== 'undefined' && Cesium.Cartesian3) {
-          app.viewer.camera.flyTo({
-            destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
-            duration: 2.5,
-          });
-        } else {
-          app.viewer.camera.flyTo({
-            destination: { lat, lon, height },
-            duration: 2.5,
-          });
-        }
+      const height = Math.max(100, Number(args.height ?? 18000));
+
+      if (viewer?.camera?.flyTo) {
+        holdContinuousRender('remote-fly');
+        governorRequestRender();
+        const destination = Cesium.Cartesian3.fromDegrees(lon, lat, height);
+        viewer.camera.flyTo({
+          destination,
+          duration: 2.0,
+          complete: () => {
+            releaseContinuousRender('remote-fly');
+            governorRequestRender();
+          },
+          cancel: () => {
+            releaseContinuousRender('remote-fly');
+            governorRequestRender();
+          },
+        });
       }
       return true;
     }
@@ -155,23 +183,69 @@ export function executeRemoteCommand(command, app = (typeof window !== 'undefine
     case 'set_layer_visibility': {
       const layerId = args.layer || args.layerId;
       const enabled = Boolean(args.enabled ?? args.visible ?? true);
-      if (layerId && app?.dataManager?.setEnabled) {
-        app.dataManager.setEnabled(layerId, enabled);
+      if (layerId && dataManager?.setEnabled) {
+        dataManager.setEnabled(layerId, enabled);
+        governorRequestRender();
       }
       return true;
     }
 
     case 'stop': {
-      if (app?.sceneDirector?.stop) {
-        app.sceneDirector.stop();
+      releaseContinuousRender('remote-fly');
+      releaseContinuousRender('remote-globe');
+      if (sceneDirector?.stop) {
+        sceneDirector.stop();
       }
-      if (app?.viewer?.camera?.cancelFlight) {
-        app.viewer.camera.cancelFlight();
+      if (viewer?.camera?.cancelFlight) {
+        viewer.camera.cancelFlight();
       }
+      governorRequestRender();
       return true;
     }
 
     case 'sync_custom_locations': {
+      return true;
+    }
+
+    case 'show_presentation_block': {
+      const blockId = args.blockId || args.id;
+      const index = args.index;
+      if (typeof window !== 'undefined' && window.__selectRealismoBlock) {
+        window.__selectRealismoBlock(blockId ?? index, true);
+      } else {
+        const lat = Number(args.lat ?? args.latitude ?? 0);
+        const lon = Number(args.lon ?? args.longitude ?? args.lng ?? 0);
+        const height = Math.max(100, Number(args.height ?? args.alt ?? 1800000));
+        if (viewer?.camera?.flyTo) {
+          holdContinuousRender('remote-fly');
+          governorRequestRender();
+          const destination = Cesium.Cartesian3.fromDegrees(lon, lat, height);
+          viewer.camera.flyTo({
+            destination,
+            duration: 2.0,
+            complete: () => {
+              releaseContinuousRender('remote-fly');
+              governorRequestRender();
+            },
+            cancel: () => {
+              releaseContinuousRender('remote-fly');
+              governorRequestRender();
+            },
+          });
+        }
+      }
+      return true;
+    }
+
+    case 'presentation_nav': {
+      const dir = args.direction || 'next';
+      if (typeof window !== 'undefined') {
+        if (dir === 'next' && window.__nextRealismoBlock) {
+          window.__nextRealismoBlock(true);
+        } else if (dir === 'prev' && window.__prevRealismoBlock) {
+          window.__prevRealismoBlock(true);
+        }
+      }
       return true;
     }
 
@@ -192,20 +266,41 @@ export function startPcRemoteListener({
   fetchImpl = (typeof fetch !== 'undefined' ? fetch : null),
   app = (typeof window !== 'undefined' ? window.__godsEyeView : null),
 } = {}) {
-  let lastTimestamp = Date.now();
+  let lastTimestamp = Date.now() - 5000;
   let lastActivityTime = Date.now();
   let stopped = false;
   let timerId = null;
 
+  function getCurrentSession() {
+    if (typeof sessionName === 'function') {
+      const val = sessionName();
+      if (val && String(val).trim().length >= 4) return String(val).trim();
+    }
+    if (typeof sessionName === 'string' && sessionName.trim().length >= 4) {
+      return sessionName.trim();
+    }
+    return getSharedUserCode();
+  }
+
   async function poll() {
     if (stopped) return;
     try {
+      const activeSession = getCurrentSession();
       const data = await fetchRemoteSession({
         serverUrl,
-        sessionName,
+        sessionName: activeSession,
         since: lastTimestamp,
         fetchImpl,
       });
+
+      // If the server resolved a session with commands from a paired device, sync to it
+      if (data?.sessionName && data.sessionName !== activeSession && typeof setSharedUserCode === 'function') {
+        try {
+          setSharedUserCode(data.sessionName);
+        } catch {
+          // ignore
+        }
+      }
 
       if (data?.commands?.length) {
         lastActivityTime = Date.now();
@@ -416,6 +511,53 @@ export function mountMobileRemoteUI(container = document.body, initialOptions = 
           Conectado. Listo para controlar la PC.
         </div>
 
+        <!-- Mando de la Exposición Escolar: El Realismo en la Literatura -->
+        <div style="background: linear-gradient(135deg, rgba(2,132,199,0.22) 0%, rgba(15,23,42,0.96) 100%); border: 1.5px solid #0284c7; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 4px 24px rgba(2,132,199,0.25);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+              <div style="font-size: 10px; font-weight: 700; color: #38bdf8; letter-spacing: 1px; text-transform: uppercase;">
+                🎓 Exposición: El Realismo en la Literatura
+              </div>
+              <div style="font-size: 14px; font-weight: 700; color: #ffffff; margin-top: 2px;">
+                Juan David De Avila Delgado
+              </div>
+              <div style="font-size: 10.5px; color: #94a3b8; margin-top: 1px;">
+                Toca un bloque para volar en 3D y proyectar datos
+              </div>
+            </div>
+            <span style="background: #0284c7; color: #fff; font-size: 10px; font-weight: 700; padding: 3px 7px; border-radius: 4px;">
+              5 Bloques
+            </span>
+          </div>
+
+          <!-- Botones de las 5 Diapositivas -->
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            ${REALISMO_PRESENTATION_BLOCKS.map((block, idx) => `
+              <button class="btn-realismo-block" data-idx="${idx}" data-id="${block.id}" style="
+                background: #0f172a; border: 1px solid #334155; color: #f8fafc; border-radius: 8px;
+                padding: 11px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; text-align: left;
+                display: flex; justify-content: space-between; align-items: center; transition: all 0.15s;
+              ">
+                <span style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 16px;">${['🌍', '🐎', '🌿', '📖', '🏙️'][idx]}</span>
+                  <span>${escapeHtml(block.buttonLabel)}</span>
+                </span>
+                <span class="fly-indicator" style="font-size: 11px; color: #38bdf8; font-family: monospace;">Volar ➔</span>
+              </button>
+            `).join('')}
+          </div>
+
+          <!-- Navegación Anterior / Siguiente -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px;">
+            <button id="btn-mobile-prev-block" style="background: #1e293b; border: 1px solid #334155; color: #cbd5e1; border-radius: 6px; padding: 10px; font-size: 12.5px; font-weight: 600; cursor: pointer;">
+              ◀ Anterior
+            </button>
+            <button id="btn-mobile-next-block" style="background: #0284c7; border: 1px solid #38bdf8; color: #ffffff; border-radius: 6px; padding: 10px; font-size: 12.5px; font-weight: 600; cursor: pointer;">
+              Siguiente ▶
+            </button>
+          </div>
+        </div>
+
         <!-- Password Switcher Section -->
         <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 12px;">
           <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #38bdf8; font-weight: 600; margin-bottom: 6px;">
@@ -590,6 +732,60 @@ export function mountMobileRemoteUI(container = document.body, initialOptions = 
     root.querySelector('#btn-zoom-globe').addEventListener('click', () => dispatch('zoom_to_globe'));
     root.querySelector('#btn-stop').addEventListener('click', () => dispatch('stop'));
     root.querySelector('#gev-btn-refresh-custom-dest').addEventListener('click', () => loadPasswordDestinations(activePassword));
+
+    // Exposición Escolar: El Realismo en la Literatura
+    let activeMobileBlockIdx = 0;
+    const updateActiveMobileBlock = (idx) => {
+      activeMobileBlockIdx = (idx + REALISMO_PRESENTATION_BLOCKS.length) % REALISMO_PRESENTATION_BLOCKS.length;
+      root.querySelectorAll('.btn-realismo-block').forEach((b) => {
+        const bIdx = Number(b.getAttribute('data-idx'));
+        const arrow = b.querySelector('.fly-indicator');
+        if (bIdx === activeMobileBlockIdx) {
+          b.style.background = '#0369a1';
+          b.style.borderColor = '#38bdf8';
+          b.style.boxShadow = '0 0 12px rgba(56, 189, 248, 0.35)';
+          if (arrow) arrow.textContent = '● En pantalla';
+        } else {
+          b.style.background = '#0f172a';
+          b.style.borderColor = '#334155';
+          b.style.boxShadow = 'none';
+          if (arrow) arrow.textContent = 'Volar ➔';
+        }
+      });
+    };
+    updateActiveMobileBlock(0);
+
+    root.querySelectorAll('.btn-realismo-block').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.getAttribute('data-idx'));
+        const id = btn.getAttribute('data-id');
+        const block = REALISMO_PRESENTATION_BLOCKS[idx];
+        updateActiveMobileBlock(idx);
+        if (navigator.vibrate) navigator.vibrate(35);
+        dispatch('show_presentation_block', {
+          blockId: id,
+          index: idx,
+          lat: block.coordinates.lat,
+          lon: block.coordinates.lng,
+          height: block.coordinates.alt,
+        });
+        log(`✔ Proyectando: ${block.buttonLabel}`);
+      });
+    });
+
+    root.querySelector('#btn-mobile-prev-block')?.addEventListener('click', () => {
+      updateActiveMobileBlock(activeMobileBlockIdx - 1);
+      if (navigator.vibrate) navigator.vibrate(25);
+      dispatch('presentation_nav', { direction: 'prev' });
+      log(`✔ Diapositiva anterior en PC`);
+    });
+
+    root.querySelector('#btn-mobile-next-block')?.addEventListener('click', () => {
+      updateActiveMobileBlock(activeMobileBlockIdx + 1);
+      if (navigator.vibrate) navigator.vibrate(25);
+      dispatch('presentation_nav', { direction: 'next' });
+      log(`✔ Diapositiva siguiente en PC`);
+    });
 
     root.querySelector('#gev-mobile-btn-apply-pass').addEventListener('click', () => {
       const p = root.querySelector('#gev-mobile-pass-input').value.trim();

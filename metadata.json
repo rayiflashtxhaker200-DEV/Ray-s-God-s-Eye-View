@@ -1,6 +1,6 @@
 {
-  "name": "God's Eye View",
-  "description": "A real-time intelligence console for planet Earth — photorealistic 3D globe, live aircraft, ships, satellites, earthquakes, CCTV, and geospatial intelligence visualization.",
+  "name": "El Realismo en la Literatura",
+  "description": "Exposición escolar interactiva en 3D sobre El Realismo en la Literatura: Europa, América del Sur y América del Norte por Juan David De Avila Delgado.",
   "permissions": [],
   "capabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

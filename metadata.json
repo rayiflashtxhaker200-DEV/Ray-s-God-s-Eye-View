@@ -1,0 +1,11 @@
+{
+  "name": "Ray s Eye View",
+  "description": "Reprogramacion del codigo de Gods Eye View con integracion de gemini.",
+  "permissions": [
+    "LOCATION",
+    "CAMERA"
+  ],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

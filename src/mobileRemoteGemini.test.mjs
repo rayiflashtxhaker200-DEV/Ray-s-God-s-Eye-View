@@ -1,8 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { executeRemoteCommand } from './mobileRemoteController.js';
+import {
+  executeRemoteCommand,
+  sendRemoteCommand,
+} from './mobileRemoteController.js';
 import { createProviderCommands } from './voice/providerCommands.js';
 import { createTextChat } from './voice/textChat.js';
+
+test('sendRemoteCommand explains when the configured server responds with HTML', async () => {
+  await assert.rejects(
+    sendRemoteCommand({
+      serverUrl: 'https://static.example.test',
+      command: { action: 'zoom_to_globe', args: {} },
+      fetchImpl: async () =>
+        new Response('<!doctype html><title>Not found</title>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        }),
+    }),
+    /contenido no JSON \(text\/html\).*servidor activo de Ray's Eye View/,
+  );
+});
 
 test('executeRemoteCommand resolves layer aliases like vessels -> ais-live-vessels', () => {
   const enabledCalls = [];

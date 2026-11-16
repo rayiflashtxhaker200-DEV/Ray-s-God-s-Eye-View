@@ -258,6 +258,38 @@ export async function searchRemotePlaces(
   return results.slice(0, 12);
 }
 
+async function readRemoteResponseJson(response, operation) {
+  const text = await response.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    if (!response.ok) {
+      const status = [response.status, response.statusText]
+        .filter(Boolean)
+        .join(' ');
+      throw new Error(`${operation}: ${status}`);
+    }
+    const contentType = response.headers?.get?.('content-type');
+    throw new Error(
+      `El servidor remoto devolvió contenido no JSON${contentType ? ` (${contentType})` : ''}. Verifica que la URL apunte al servidor activo de Ray's Eye View y no a una página estática.`,
+    );
+  }
+
+  if (!response.ok) {
+    const status = [response.status, response.statusText]
+      .filter(Boolean)
+      .join(' ');
+    throw new Error(data?.error || `${operation}: ${status}`);
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error(
+      'El servidor remoto devolvió una respuesta JSON no válida.',
+    );
+  }
+  return data;
+}
+
 /**
  * Send a remote command to the server session via POST.
  */
@@ -290,13 +322,7 @@ export async function sendRemoteCommand({
     body: JSON.stringify(payload),
   });
 
-  if (!response.ok) {
-    throw new Error(
-      `Failed to send command: ${response.status} ${response.statusText}`,
-    );
-  }
-
-  return response.json();
+  return readRemoteResponseJson(response, 'Failed to send command');
 }
 
 /**
@@ -323,11 +349,7 @@ export async function fetchRemoteSession({
     headers: { Accept: 'application/json' },
   });
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch session: ${response.status}`);
-  }
-
-  return response.json();
+  return readRemoteResponseJson(response, 'Failed to fetch session');
 }
 
 /**

@@ -127,6 +127,7 @@ export function createGeminiTokenHandler({
           headers: {
             'x-goog-api-key': apiKey,
             'Content-Type': 'application/json',
+            'User-Agent': 'aistudio-build',
           },
           body: JSON.stringify(request),
         }),

@@ -20,9 +20,9 @@ export function textInstructions(annotationGuidance, options) {
   return realtimeDirectives(annotationGuidance, options)
     .map((line, index) => {
       if (index === 0)
-        return "You are GEV Chat, a concise text assistant for a Cesium geospatial app called God's Eye View.";
+        return "You are Ray's Eye View Chat, a concise bilingual (Spanish and English) assistant for a Cesium geospatial app called Ray's Eye View.";
       if (index === 1)
-        return 'Have a natural written conversation. This is text-only chat; no microphone or generated audio is used.';
+        return 'Have a natural, dynamic written conversation grounded in the live 3D globe state. Reply in Spanish if the user writes in Spanish, or English if the user writes in English. No microphone or generated audio is used.';
       return TEXT_WORDING.reduce(
         (text, [spoken, written]) => text.replace(spoken, written),
         line,

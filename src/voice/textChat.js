@@ -42,6 +42,7 @@ export function createTextChat({
   provider = 'gemini',
   endpoint = '/api/gemini/chat',
   maxTurns = MAX_TOOL_TURNS,
+  readContext = null,
 } = {}) {
   let active = false;
   let turnAbort = null;
@@ -78,14 +79,34 @@ export function createTextChat({
     try {
       for (let step = 0; step < maxTurns; step++) {
         if (!active || combinedSignal.aborted) return;
+        let liveContext = null;
+        if (typeof readContext === 'function') {
+          try {
+            liveContext = readContext();
+          } catch {
+            liveContext = null;
+          }
+        }
+        const requestPayload = {
+          provider,
+          contents,
+          ...(liveContext && typeof liveContext === 'object'
+            ? { context: liveContext }
+            : {}),
+        };
         const response = await fetchImpl(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider, contents }),
+          body: JSON.stringify(requestPayload),
           signal: combinedSignal,
         });
         if (!active || combinedSignal.aborted) return;
-        const payload = await response.json();
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch {
+          payload = null;
+        }
         if (!active || combinedSignal.aborted) return;
 
         usage.requests++;

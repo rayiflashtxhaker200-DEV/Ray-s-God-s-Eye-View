@@ -199,8 +199,49 @@ export function createApplicationTools({
   defer(() => {
     if (window.__godsEyeView === debug) delete window.__godsEyeView;
   });
+  const readVoiceContext = () => {
+    try {
+      const cam = viewer?.camera;
+      const carto = cam?.positionCartographic;
+      const radToDeg = 180 / Math.PI;
+      const camera =
+        carto &&
+        Number.isFinite(carto.latitude) &&
+        Number.isFinite(carto.longitude)
+          ? {
+              lat: Number((carto.latitude * radToDeg).toFixed(5)),
+              lon: Number((carto.longitude * radToDeg).toFixed(5)),
+              altitudeM: Number.isFinite(carto.height)
+                ? Math.round(carto.height)
+                : null,
+            }
+          : null;
+      const enabledLayers = dataManager?.layers
+        ? [...dataManager.layers.entries()]
+            .filter(([, entry]) => entry?.enabled || entry?.state?.enabled)
+            .map(([id]) => id)
+        : [];
+      const trackedEntity =
+        viewer?.trackedEntity?.name || viewer?.trackedEntity?.id || null;
+      return {
+        ...(camera ? { camera, altitude: camera.altitudeM } : {}),
+        visualStyle: styleManager?.activeStyle || 'normal',
+        enabledLayers,
+        ...(trackedEntity ? { trackedEntity } : {}),
+        locale: globalThis.document?.documentElement?.lang || 'es',
+        source: 'desktop',
+      };
+    } catch {
+      return {
+        locale: globalThis.document?.documentElement?.lang || 'es',
+        source: 'desktop',
+      };
+    }
+  };
+
   const voiceCommands = initGevVoiceCommands({
     ...voice,
+    readContext: voice?.readContext || readVoiceContext,
     floorServices: operations.surface.groundFloor,
     annotationResolver: operations.annotationResolver,
     searchNavigation: operations.searchAndFlyTo,

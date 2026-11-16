@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import cesium from 'vite-plugin-cesium';
 import { localProviderPlugins } from './server/providers/local.js';
+import { standaloneVoiceTools } from './server/standalone/voiceTools.js';
 import { googleTokenUnavailablePlugin } from './server/standalone/google-token-unavailable.js';
 import { apiNotFoundPlugin } from './server/standalone/api-not-found.js';
 
@@ -11,7 +12,9 @@ export default defineConfig({
   plugins: [
     vue(),
     cesium(),
-    ...localProviderPlugins(),
+    ...localProviderPlugins({
+      gemini: { tools: standaloneVoiceTools() },
+    }),
     googleTokenUnavailablePlugin(),
     apiNotFoundPlugin(),
   ],

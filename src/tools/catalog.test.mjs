@@ -204,6 +204,21 @@ test('the validator checks every supported keyword', () => {
   ]);
 });
 
+test('type unions validate against each declared type', () => {
+  const schema = { type: ['string', 'number'], minimum: 0, maximum: 5 };
+  assert.deepEqual(validateValue(schema, 'value'), []);
+  assert.deepEqual(validateValue(schema, 3), []);
+  assert.deepEqual(validateValue(schema, 6), ['arguments must be at most 5']);
+  assert.deepEqual(validateValue(schema, false), [
+    'arguments must be string or number',
+  ]);
+  assert.deepEqual(validateValue({ type: ['integer', 'string'] }, 2), []);
+  assert.deepEqual(validateValue({ type: ['integer', 'string'] }, 'two'), []);
+  assert.deepEqual(validateValue({ type: ['integer', 'string'] }, 2.5), [
+    'arguments must be integer or string',
+  ]);
+});
+
 test('inherited names are not declared properties, and schema-valued additionalProperties is refused', () => {
   const schema = {
     type: 'object',

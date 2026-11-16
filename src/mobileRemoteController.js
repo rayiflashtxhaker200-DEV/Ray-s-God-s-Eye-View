@@ -20,6 +20,48 @@ import {
   syncDestinationsToServer,
 } from './customDestinations.js';
 import { CITY_POIS } from './cityPois.js';
+import { voiceLayerAliasMap } from './voice/layerManifest.js';
+
+const LAYER_ALIAS_MAP = voiceLayerAliasMap();
+
+function resolveRemoteLayerId(rawLayer, dataManager) {
+  const clean = String(rawLayer || '').trim();
+  if (!clean) return '';
+  if (dataManager?.layers?.has?.(clean)) return clean;
+  const aliased = LAYER_ALIAS_MAP.get(clean.toLowerCase());
+  if (aliased && (!dataManager?.layers || dataManager.layers.has(aliased))) {
+    return aliased;
+  }
+  return aliased || clean;
+}
+
+const REMOTE_GEMINI_DELEGATED_ACTIONS = new Set([
+  'fly_to_location',
+  'zoom_to_globe',
+  'set_visual_style',
+  'adjust_camera_zoom',
+  'move_camera',
+  'set_hud',
+  'set_map_stack',
+  'set_post_processing',
+  'control_scene',
+  'control_cctv',
+  'control_radio',
+  'track_entity',
+  'stop_tracking',
+  'select_nearest_aircraft',
+  'frame_overhead',
+  'annotate_map',
+  'clear_annotations',
+  'analyst_query',
+  'osm_query',
+  'get_entity_context',
+  'get_current_view_state',
+  'set_context_mode',
+  'show_data_layers_menu',
+  'search_imagery',
+  'set_layer_visibility',
+]);
 
 function degreesToCartesian3(lonDeg, latDeg, height = 0) {
   if (globalThis.Cesium?.Cartesian3?.fromDegrees) {
@@ -50,9 +92,7 @@ export function isMobileRemote(
   const params = new URLSearchParams(
     search.startsWith('?') ? search : `?${search}`,
   );
-  return (
-    params.get('remote') === 'mobile' || params.get('device') === 'mobile'
-  );
+  return params.get('remote') === 'mobile' || params.get('device') === 'mobile';
 }
 
 /**
@@ -77,10 +117,9 @@ export function normalizeServerUrl(url = '') {
  * Parse direct coordinate queries like "40.4168, -3.7038" or "40.4168 -3.7038".
  */
 export function parseCoordinateQuery(query = '') {
-  const match =
-    /^\s*(-?\d+(?:\.\d+)?)\s*[,\s;]+\s*(-?\d+(?:\.\d+)?)\s*$/.exec(
-      String(query || ''),
-    );
+  const match = /^\s*(-?\d+(?:\.\d+)?)\s*[,\s;]+\s*(-?\d+(?:\.\d+)?)\s*$/.exec(
+    String(query || ''),
+  );
   if (!match) return null;
   const lat = Number(match[1]);
   const lon = Number(match[2]);
@@ -313,6 +352,14 @@ export function executeRemoteCommand(
     (typeof window !== 'undefined'
       ? window.__godsEyeView?.sceneDirector
       : null);
+  const styleManager =
+    app?.styleManager ||
+    (typeof window !== 'undefined' ? window.__godsEyeView?.styleManager : null);
+  const voiceCommands =
+    app?.voiceCommands ||
+    (typeof window !== 'undefined'
+      ? window.__godsEyeView?.voiceCommands
+      : null);
 
   switch (action) {
     case 'zoom_to_globe': {
@@ -332,11 +379,30 @@ export function executeRemoteCommand(
             governorRequestRender();
           },
         });
+        return true;
+      }
+      if (typeof voiceCommands?.runner === 'function') {
+        void Promise.resolve(voiceCommands.runner('zoom_to_globe', args));
+        return true;
       }
       return true;
     }
 
     case 'fly_to_location': {
+      const hasNumericCoords =
+        Number.isFinite(Number(args.lat ?? args.latitude)) &&
+        Number.isFinite(Number(args.lon ?? args.longitude)) &&
+        (args.lat !== undefined || args.latitude !== undefined) &&
+        (args.lon !== undefined || args.longitude !== undefined);
+
+      if (!hasNumericCoords && (args.query || args.locationId)) {
+        if (typeof voiceCommands?.runner === 'function') {
+          void Promise.resolve(voiceCommands.runner('fly_to_location', args));
+          return true;
+        }
+        return false;
+      }
+
       const lat = Number(args.lat ?? args.latitude ?? 0);
       const lon = Number(args.lon ?? args.longitude ?? 0);
       const height = Math.max(100, Number(args.height ?? 18000));
@@ -369,7 +435,10 @@ export function executeRemoteCommand(
       const zoomDelta = Number(args.zoomDelta ?? 0);
       const pitchDelta = Number(args.pitchDelta ?? 0);
       const mode = args.mode === 'orbit' ? 'orbit' : 'pan';
-      const height = Math.max(120, Number(cam.positionCartographic?.height ?? 120000));
+      const height = Math.max(
+        120,
+        Number(cam.positionCartographic?.height ?? 120000),
+      );
 
       if (dx !== 0 || dy !== 0) {
         if (mode === 'orbit') {
@@ -448,13 +517,39 @@ export function executeRemoteCommand(
     }
 
     case 'set_layer_visibility': {
-      const layerId = args.layer || args.layerId;
+      const rawLayerId = args.layerId || args.layer;
+      const layerId = resolveRemoteLayerId(rawLayerId, dataManager);
       const enabled = Boolean(args.enabled ?? args.visible ?? true);
       if (layerId && dataManager?.setEnabled) {
         dataManager.setEnabled(layerId, enabled, { origin: 'user' });
         governorRequestRender();
+        return true;
+      }
+      if (layerId && typeof voiceCommands?.runner === 'function') {
+        void Promise.resolve(
+          voiceCommands.runner('set_layer_visibility', { layerId, enabled }),
+        );
+        return true;
       }
       return true;
+    }
+
+    case 'set_visual_style': {
+      const style = String(args.style || '')
+        .trim()
+        .toLowerCase();
+      if (style && typeof voiceCommands?.runner === 'function') {
+        void Promise.resolve(
+          voiceCommands.runner('set_visual_style', { style }),
+        );
+        return true;
+      }
+      if (style && styleManager?.setStyle) {
+        styleManager.setStyle(style);
+        governorRequestRender();
+        return true;
+      }
+      return false;
     }
 
     case 'stop': {
@@ -474,8 +569,16 @@ export function executeRemoteCommand(
       return true;
     }
 
-    default:
+    default: {
+      if (
+        REMOTE_GEMINI_DELEGATED_ACTIONS.has(action) &&
+        typeof voiceCommands?.runner === 'function'
+      ) {
+        void Promise.resolve(voiceCommands.runner(action, args || {}));
+        return true;
+      }
       return false;
+    }
   }
 }
 
@@ -500,7 +603,11 @@ export function startPcRemoteListener({
       const val = sessionName();
       if (val && String(val).trim().length >= 4) return String(val).trim();
     }
-    if (typeof sessionName === 'string' && sessionName.trim().length >= 4 && sessionName !== 'default') {
+    if (
+      typeof sessionName === 'string' &&
+      sessionName.trim().length >= 4 &&
+      sessionName !== 'default'
+    ) {
       return sessionName.trim();
     }
     return getSharedUserCode();
@@ -536,7 +643,8 @@ export function startPcRemoteListener({
             lastTimestamp = cmd.timestamp;
             executeRemoteCommand(
               cmd,
-              app || (typeof window !== 'undefined' ? window.__godsEyeView : null),
+              app ||
+                (typeof window !== 'undefined' ? window.__godsEyeView : null),
             );
             if (typeof onCommand === 'function') {
               onCommand(cmd);
@@ -652,6 +760,12 @@ export function mountMobileRemoteUI(
   let searchQuery = '';
   let searchTimer = null;
   let searchAbort = null;
+  const aiMessages = [];
+  const aiHistory = [];
+  let aiBusy = false;
+  let aiTtsEnabled = true;
+  let aiRecognition = null;
+  let aiDictating = false;
 
   const root = document.createElement('div');
   root.id = 'gev-mobile-remote-app';
@@ -895,6 +1009,45 @@ export function mountMobileRemoteUI(
             </div>
           </div>
         </section>
+
+        <!-- TAB: VOZ AI (Gemini Voice + Respuestas Dinámicas) -->
+        <section class="rem-panel ${activeTab === 'ai' ? 'is-active' : ''}" data-rem-panel="ai">
+          <div class="rem-card rem-stack">
+            <div class="rem-card-head">
+              <div>
+                <h2 class="rem-card-title">Asistente Voz AI</h2>
+                <p class="rem-card-sub">Habla o escribe órdenes para Gemini y el globo 3D</p>
+              </div>
+              <button id="rem-ai-tts-btn" type="button" class="rem-btn rem-btn-surface rem-btn-sm ${aiTtsEnabled ? 'is-on' : ''}" aria-pressed="${aiTtsEnabled ? 'true' : 'false'}" title="Leer respuestas en voz alta">
+                <span class="material-symbols-outlined" aria-hidden="true">${aiTtsEnabled ? 'volume_up' : 'volume_off'}</span>
+                <span>Voz</span>
+              </button>
+            </div>
+
+            <div class="rem-ai-mic-row">
+              <button id="rem-ai-mic-btn" type="button" class="rem-btn rem-btn-primary rem-ai-mic-btn" aria-pressed="false">
+                <span class="material-symbols-outlined" aria-hidden="true">mic</span>
+                <span id="rem-ai-mic-label">Pulsa para hablar</span>
+              </button>
+            </div>
+
+            <div class="rem-chip-row">
+              <button type="button" class="rem-chip rem-ai-chip" data-ai-prompt="Vuela a Tokio">Vuela a Tokio</button>
+              <button type="button" class="rem-chip rem-ai-chip" data-ai-prompt="Activa vuelos en vivo">Activa vuelos</button>
+              <button type="button" class="rem-chip rem-ai-chip" data-ai-prompt="Cambia al estilo térmico FLIR">Modo térmico</button>
+              <button type="button" class="rem-chip rem-ai-chip" data-ai-prompt="Muéstrame el globo completo">Vista global</button>
+            </div>
+
+            <div id="rem-ai-feed" class="rem-ai-feed" role="log" aria-live="polite"></div>
+
+            <form id="rem-ai-form" class="rem-search-bar">
+              <input id="rem-ai-input" type="text" class="rem-input" placeholder="Ej. Vuela a Madrid y activa satélites..." autocomplete="off" />
+              <button id="rem-ai-send" type="submit" class="rem-btn rem-btn-primary" aria-label="Enviar orden a Gemini">
+                <span class="material-symbols-outlined" aria-hidden="true">send</span>
+              </button>
+            </form>
+          </div>
+        </section>
       </main>
 
       <nav class="rem-bottom-nav" aria-label="Secciones del control remoto">
@@ -913,6 +1066,10 @@ export function mountMobileRemoteUI(
         <button type="button" class="rem-nav-btn ${activeTab === 'layers' ? 'is-active' : ''}" data-rem-tab="layers">
           <span class="material-symbols-outlined" aria-hidden="true">layers</span>
           <span>Capas</span>
+        </button>
+        <button type="button" class="rem-nav-btn ${activeTab === 'ai' ? 'is-active' : ''}" data-rem-tab="ai">
+          <span class="material-symbols-outlined" aria-hidden="true">auto_awesome</span>
+          <span>Voz AI</span>
         </button>
       </nav>
     `;
@@ -943,10 +1100,16 @@ export function mountMobileRemoteUI(
     function switchTab(tab) {
       activeTab = tab;
       root.querySelectorAll('[data-rem-panel]').forEach((el) => {
-        el.classList.toggle('is-active', el.getAttribute('data-rem-panel') === tab);
+        el.classList.toggle(
+          'is-active',
+          el.getAttribute('data-rem-panel') === tab,
+        );
       });
       root.querySelectorAll('[data-rem-tab]').forEach((el) => {
-        el.classList.toggle('is-active', el.getAttribute('data-rem-tab') === tab);
+        el.classList.toggle(
+          'is-active',
+          el.getAttribute('data-rem-tab') === tab,
+        );
       });
     }
 
@@ -963,7 +1126,8 @@ export function mountMobileRemoteUI(
 
     root.querySelectorAll('[data-pad-mode]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        trackpadMode = btn.getAttribute('data-pad-mode') === 'orbit' ? 'orbit' : 'pan';
+        trackpadMode =
+          btn.getAttribute('data-pad-mode') === 'orbit' ? 'orbit' : 'pan';
         root.querySelectorAll('[data-pad-mode]').forEach((b) => {
           b.classList.toggle('is-active', b === btn);
         });
@@ -1018,8 +1182,14 @@ export function mountMobileRemoteUI(
 
         const rect = trackpad.getBoundingClientRect();
         if (reticle) {
-          const rx = Math.max(12, Math.min(rect.width - 12, e.clientX - rect.left));
-          const ry = Math.max(12, Math.min(rect.height - 12, e.clientY - rect.top));
+          const rx = Math.max(
+            12,
+            Math.min(rect.width - 12, e.clientX - rect.left),
+          );
+          const ry = Math.max(
+            12,
+            Math.min(rect.height - 12, e.clientY - rect.top),
+          );
           reticle.style.left = `${rx}px`;
           reticle.style.top = `${ry}px`;
         }
@@ -1137,7 +1307,9 @@ export function mountMobileRemoteUI(
           });
           customLocations = getDestinationsForPassword(activePassword);
           renderCustomLocations();
-          log(`Guardado "${item.name}" en perfil ${activePassword || 'General'}.`);
+          log(
+            `Guardado "${item.name}" en perfil ${activePassword || 'General'}.`,
+          );
           try {
             await syncDestinationsToServer({
               serverUrl,
@@ -1218,14 +1390,21 @@ export function mountMobileRemoteUI(
           const lat = Number(btn.getAttribute('data-lat'));
           const lon = Number(btn.getAttribute('data-lon'));
           const height = Number(btn.getAttribute('data-height'));
-          const label = btn.querySelector('.rem-result-name')?.textContent || 'destino';
-          dispatch('fly_to_location', { lat, lon, height }, `Volando a ${label}`);
+          const label =
+            btn.querySelector('.rem-result-name')?.textContent || 'destino';
+          dispatch(
+            'fly_to_location',
+            { lat, lon, height },
+            `Volando a ${label}`,
+          );
         });
       });
     }
 
     async function loadPasswordDestinations(pass) {
-      activePassword = String(pass ?? '').trim().toLowerCase();
+      activePassword = String(pass ?? '')
+        .trim()
+        .toLowerCase();
       localStorage.setItem('gev_active_preset_password', activePassword);
       setActivePassword(activePassword);
 
@@ -1243,7 +1422,9 @@ export function mountMobileRemoteUI(
           customLocations = sessionData.customLocations;
           renderCustomLocations();
         }
-        log(`Perfil "${activePassword || 'General'}" sincronizado (${customLocations.length}).`);
+        log(
+          `Perfil "${activePassword || 'General'}" sincronizado (${customLocations.length}).`,
+        );
       } catch {
         log(`Destinos locales cargados (${customLocations.length}).`);
       }
@@ -1251,10 +1432,14 @@ export function mountMobileRemoteUI(
 
     renderCustomLocations();
 
-    root.querySelector('#gev-btn-settings')?.addEventListener('click', renderConfigView);
+    root
+      .querySelector('#gev-btn-settings')
+      ?.addEventListener('click', renderConfigView);
     root
       .querySelector('#gev-btn-refresh-custom-dest')
-      ?.addEventListener('click', () => loadPasswordDestinations(activePassword));
+      ?.addEventListener('click', () =>
+        loadPasswordDestinations(activePassword),
+      );
 
     root
       .querySelector('#gev-mobile-btn-apply-pass')
@@ -1303,6 +1488,258 @@ export function mountMobileRemoteUI(
       });
     });
 
+    // Gemini Voz AI panel logic
+    const aiFeed = root.querySelector('#rem-ai-feed');
+    const aiInput = root.querySelector('#rem-ai-input');
+    const aiForm = root.querySelector('#rem-ai-form');
+    const aiMicBtn = root.querySelector('#rem-ai-mic-btn');
+    const aiMicLabel = root.querySelector('#rem-ai-mic-label');
+    const aiTtsBtn = root.querySelector('#rem-ai-tts-btn');
+
+    function syncLayerRowUi(rawId, enabled) {
+      const normalized =
+        rawId === 'ais-live-vessels'
+          ? 'vessels'
+          : rawId === 'local-firms'
+            ? 'firms'
+            : rawId;
+      if (!layerState.has(normalized)) return;
+      layerState.set(normalized, Boolean(enabled));
+      const row = root.querySelector(
+        `.rem-layer-row[data-layer="${normalized}"]`,
+      );
+      if (row) {
+        row.classList.toggle('is-on', Boolean(enabled));
+        row.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        const stateEl = row.querySelector('.rem-layer-state');
+        if (stateEl) stateEl.textContent = enabled ? 'Activa' : 'Inactiva';
+      }
+    }
+
+    function speakAiReply(text) {
+      if (!aiTtsEnabled || !text) return;
+      const synth = globalThis.speechSynthesis;
+      if (!synth || typeof globalThis.SpeechSynthesisUtterance !== 'function')
+        return;
+      try {
+        synth.cancel();
+        const u = new globalThis.SpeechSynthesisUtterance(String(text));
+        u.lang = 'es-ES';
+        u.rate = 1.03;
+        synth.speak(u);
+      } catch {
+        /* ignore TTS error */
+      }
+    }
+
+    function renderAiFeed() {
+      if (!aiFeed) return;
+      if (!aiMessages.length) {
+        aiFeed.innerHTML = `<div class="rem-empty">Habla o escribe una orden natural para controlar la pantalla principal con Gemini AI.</div>`;
+        return;
+      }
+      aiFeed.innerHTML = aiMessages
+        .map(
+          (m) => `
+          <div class="rem-ai-msg ${m.role === 'user' ? 'is-user' : 'is-model'}">
+            <div class="rem-ai-msg-role">${m.role === 'user' ? 'TÚ' : 'GEMINI AI'}</div>
+            <div class="rem-ai-msg-text">${escapeHtml(m.text)}</div>
+            ${
+              m.tools?.length
+                ? `<div class="rem-ai-tools">${m.tools.map((t) => `<span class="rem-ai-tool-badge">${escapeHtml(t)}</span>`).join('')}</div>`
+                : ''
+            }
+          </div>
+        `,
+        )
+        .join('');
+      aiFeed.scrollTop = aiFeed.scrollHeight;
+    }
+
+    async function sendAiPrompt(promptText) {
+      const clean = String(promptText || '').trim();
+      if (!clean || aiBusy) return;
+      aiBusy = true;
+      aiMessages.push({ role: 'user', text: clean });
+      renderAiFeed();
+      log(`Consultando Gemini: "${clean}"`);
+
+      try {
+        const base = normalizeServerUrl(serverUrl);
+        const enabledLayers = [...layerState.entries()]
+          .filter(([, on]) => on)
+          .map(([id]) => id);
+        const response = await fetch(`${base}/api/gemini/voice`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: clean,
+            context: {
+              enabledLayers,
+              locale: 'es',
+              source: 'mobile-remote',
+            },
+            history: aiHistory.slice(-6),
+          }),
+        });
+        let data = null;
+        try {
+          data = await response.json();
+        } catch {
+          data = null;
+        }
+        if (!response.ok) {
+          throw new Error(
+            data?.error || `Error Gemini HTTP ${response.status}`,
+          );
+        }
+
+        const calls = Array.isArray(data?.functionCalls)
+          ? data.functionCalls
+          : [];
+        const executedLabels = [];
+        for (const call of calls) {
+          const actionName = call?.name;
+          const actionArgs = call?.args || {};
+          if (!actionName) continue;
+          await sendRemoteCommand({
+            serverUrl,
+            sessionName,
+            deviceName: userName,
+            password: activePassword,
+            command: { action: actionName, args: actionArgs },
+          });
+          if (actionName === 'set_layer_visibility') {
+            syncLayerRowUi(
+              actionArgs.layerId || actionArgs.layer,
+              actionArgs.enabled ?? true,
+            );
+          }
+          executedLabels.push(actionName.replace(/_/g, ' '));
+        }
+
+        const reply =
+          String(data?.text || '').trim() ||
+          (executedLabels.length
+            ? `Ejecutado en PC: ${executedLabels.join(', ')}.`
+            : 'Listo.');
+
+        aiHistory.push({ role: 'user', text: clean });
+        aiHistory.push({ role: 'model', text: reply });
+        aiMessages.push({ role: 'model', text: reply, tools: executedLabels });
+        renderAiFeed();
+        log(reply);
+        speakAiReply(reply);
+      } catch (err) {
+        const errMsg = err?.message || 'Error al comunicar con Gemini AI.';
+        aiMessages.push({ role: 'model', text: errMsg });
+        renderAiFeed();
+        log(errMsg, true);
+      } finally {
+        aiBusy = false;
+      }
+    }
+
+    function stopRemoteDictation() {
+      if (aiRecognition) {
+        try {
+          aiRecognition.stop();
+        } catch {
+          /* ignore */
+        }
+        aiRecognition = null;
+      }
+      aiDictating = false;
+      aiMicBtn?.classList.remove('is-listening');
+      aiMicBtn?.setAttribute('aria-pressed', 'false');
+      if (aiMicLabel) aiMicLabel.textContent = 'Pulsa para hablar';
+    }
+
+    aiMicBtn?.addEventListener('click', () => {
+      const Recognition =
+        globalThis.SpeechRecognition || globalThis.webkitSpeechRecognition;
+      if (!Recognition) {
+        log(
+          'Dictado por voz no disponible en este navegador; escribe tu orden.',
+          true,
+        );
+        aiInput?.focus();
+        return;
+      }
+      if (aiDictating) {
+        stopRemoteDictation();
+        return;
+      }
+      stopRemoteDictation();
+      const rec = new Recognition();
+      aiRecognition = rec;
+      aiDictating = true;
+      rec.lang = 'es-ES';
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
+      aiMicBtn.classList.add('is-listening');
+      aiMicBtn.setAttribute('aria-pressed', 'true');
+      if (aiMicLabel) aiMicLabel.textContent = 'Escuchando… (toca para parar)';
+
+      let transcript = '';
+      rec.onresult = (e) => {
+        let interim = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const piece = e.results[i]?.[0]?.transcript || '';
+          if (e.results[i].isFinal) transcript += `${piece} `;
+          else interim += piece;
+        }
+        if (aiInput) aiInput.value = (transcript || interim).trim();
+      };
+      rec.onerror = (e) => {
+        stopRemoteDictation();
+        if (e?.error && e.error !== 'aborted' && e.error !== 'no-speech') {
+          log(`Error de micrófono (${e.error}).`, true);
+        }
+      };
+      rec.onend = () => {
+        const finalClean = transcript.trim();
+        stopRemoteDictation();
+        if (finalClean) {
+          if (aiInput) aiInput.value = '';
+          void sendAiPrompt(finalClean);
+        }
+      };
+      try {
+        rec.start();
+      } catch {
+        stopRemoteDictation();
+      }
+    });
+
+    aiTtsBtn?.addEventListener('click', () => {
+      aiTtsEnabled = !aiTtsEnabled;
+      aiTtsBtn.classList.toggle('is-on', aiTtsEnabled);
+      aiTtsBtn.setAttribute('aria-pressed', aiTtsEnabled ? 'true' : 'false');
+      const iconSpan = aiTtsBtn.querySelector('.material-symbols-outlined');
+      if (iconSpan) {
+        const glyph = aiTtsEnabled ? 'volume_up' : 'volume_off';
+        iconSpan.replaceChildren(document.createTextNode(glyph));
+      }
+      if (!aiTtsEnabled) globalThis.speechSynthesis?.cancel?.();
+    });
+
+    root.querySelectorAll('.rem-ai-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        const prompt = chip.getAttribute('data-ai-prompt');
+        if (prompt) void sendAiPrompt(prompt);
+      });
+    });
+
+    aiForm?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const val = aiInput?.value || '';
+      if (aiInput) aiInput.value = '';
+      void sendAiPrompt(val);
+    });
+
+    renderAiFeed();
+
     if (activePassword) {
       loadPasswordDestinations(activePassword);
     }
@@ -1319,6 +1756,13 @@ export function mountMobileRemoteUI(
     destroy() {
       if (searchTimer) clearTimeout(searchTimer);
       if (searchAbort) searchAbort.abort();
+      if (aiRecognition) {
+        try {
+          aiRecognition.stop();
+        } catch {
+          /* ignore */
+        }
+      }
       if (root.parentNode) {
         root.parentNode.removeChild(root);
       }

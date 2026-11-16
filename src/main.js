@@ -41,7 +41,9 @@ if (isMobileRemote()) {
     googleApiKey: import.meta.env.GOOGLE_MAPS_API_KEY,
     cesiumToken: import.meta.env.CESIUM_ION_TOKEN,
     geospatial:
-      photonSetting === undefined ? {} : { endpoints: { photon: photonSetting } },
+      photonSetting === undefined
+        ? {}
+        : { endpoints: { photon: photonSetting } },
     allowQaRegistration: import.meta.env.DEV,
   });
 
@@ -59,6 +61,11 @@ if (isMobileRemote()) {
         components?.data?.dataManager || window.__godsEyeView?.dataManager;
       const sceneDirector =
         components?.tools?.sceneDirector || window.__godsEyeView?.sceneDirector;
+      const styleManager =
+        components?.controls?.styleManager ||
+        window.__godsEyeView?.styleManager;
+      const voiceCommands =
+        components?.tools?.voiceCommands || window.__godsEyeView?.voiceCommands;
 
       mountPcPairingAndDestinationsPanel(viewer);
       startPcRemoteListener({
@@ -66,6 +73,8 @@ if (isMobileRemote()) {
           viewer,
           dataManager,
           sceneDirector,
+          styleManager,
+          voiceCommands,
         },
       });
     })

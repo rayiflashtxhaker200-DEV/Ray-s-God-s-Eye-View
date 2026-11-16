@@ -13,6 +13,26 @@ export { makeRateLimiter } from '../../../src/sources/rateLimit.js';
  * @param {string|undefined} envValue - Raw env value (requests/min/IP).
  * @returns {((key:string)=>boolean)|null} An `allow(key)` fn, or null when unlimited.
  */
+export function resolvePerMinuteCap(envValue, defaultPerMin = 30) {
+  if (envValue === undefined || envValue === null) return defaultPerMin;
+  const trimmed = String(envValue).trim();
+  if (!trimmed) return defaultPerMin;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) return defaultPerMin;
+  if (parsed === 0) return 0;
+  return Math.max(1, Math.floor(parsed));
+}
+
+export function makeCostRateLimiter(envValue, defaultPerMin = 30) {
+  const cap = resolvePerMinuteCap(envValue, defaultPerMin);
+  if (cap <= 0) return null;
+  return makeRateLimiter({
+    windowMs: 60_000,
+    max: cap,
+    globalMax: cap * 20,
+  });
+}
+
 export function makeOptInRateLimiter(envValue) {
   const max = Number(envValue);
   if (!Number.isFinite(max) || max <= 0) return null; // unset/0/garbage -> unlimited

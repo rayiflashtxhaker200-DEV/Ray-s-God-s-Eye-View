@@ -41,7 +41,7 @@ import { remoteSessionPlugin } from './remote-session.js';
  */
 function localProviderPlugins({
   realtime,
-  gemini,
+  gemini = {},
   nominatimStorageDir = NOMINATIM_CACHE_DIR,
 } = {}) {
   if (
@@ -73,7 +73,7 @@ function localProviderPlugins({
     trackBackfillProxies(),
     openAiRealtimeProxy({ realtime }),
     geminiVoiceProxy(),
-    ...(gemini ? [geminiLiveProxy({ realtime: gemini })] : []),
+    ...(gemini !== false ? [geminiLiveProxy({ realtime: gemini || {} })] : []),
     googlePlacesContextProxy(),
     windProxy(),
     weatherProxy(),

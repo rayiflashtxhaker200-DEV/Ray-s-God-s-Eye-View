@@ -15,7 +15,8 @@
   --text-secondary: rgba(226, 232, 240, 0.68);
   --text-dim: rgba(226, 232, 240, 0.44);
   --menu-bg: #111622;
-  --font-sans: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans:
+    'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
   --panel-radius: 12px;
   --btn-radius: 9px;
@@ -96,7 +97,10 @@
   border-radius: 8px;
   border-color: transparent;
   background: transparent;
-  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
 }
 
 :root:not([data-ui-theme='cyber']) #top-center-actions > button:hover {
@@ -140,9 +144,324 @@
 }
 
 :root:not([data-ui-theme='cyber']) #gev-voice-control {
-  right: 22px;
-  bottom: 18px;
   border-radius: 12px;
+}
+
+/* ── Desktop Dock Voice Quick Actions & Gemini Dynamic Chat Drawer ─────── */
+.gev-voice-dock-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.gev-voice-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(226, 232, 240, 0.78);
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.gev-voice-mini-btn .material-symbols-outlined {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.gev-voice-mini-btn:hover,
+.gev-voice-mini-btn.is-active {
+  color: #67e8f9;
+  border-color: rgba(34, 211, 238, 0.55);
+  background: rgba(34, 211, 238, 0.14);
+}
+
+.gev-voice-mini-btn.is-listening {
+  color: #ffffff;
+  border-color: rgba(244, 63, 94, 0.8);
+  background: rgba(225, 29, 72, 0.48);
+}
+
+.gev-voice-error-fallback {
+  margin-top: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  background: rgba(34, 211, 238, 0.14);
+  color: #67e8f9;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gev-voice-error-fallback:hover {
+  background: rgba(34, 211, 238, 0.24);
+}
+
+.gev-chat-mini-reply {
+  position: absolute;
+  bottom: calc(100% + 0.55rem);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(22rem, calc(100vw - 2rem));
+  padding: 6px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  background: rgba(11, 15, 23, 0.92);
+  color: #e2e8f0;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  z-index: 9;
+}
+
+.gev-chat-mini-reply[hidden] {
+  display: none;
+}
+
+#gev-chat-panel {
+  position: absolute;
+  bottom: calc(100% + 0.7rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 105;
+  width: clamp(19rem, 30vw, 25rem);
+  max-width: calc(100vw - 1.5rem);
+  max-height: min(30rem, 62dvh);
+  display: flex;
+  flex-direction: column;
+  background: rgba(10, 15, 24, 0.94);
+  border: 1px solid rgba(34, 211, 238, 0.34);
+  border-radius: 14px;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+  color: #f1f5f9;
+  font-family: var(--font-sans);
+  overflow: hidden;
+}
+
+#gev-chat-panel[hidden] {
+  display: none;
+}
+
+.gev-chat-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.gev-chat-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #67e8f9;
+}
+
+.gev-chat-phase {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: rgba(226, 232, 240, 0.65);
+}
+
+.gev-chat-hdr-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.gev-chat-hdr-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.gev-chat-hdr-btn .material-symbols-outlined {
+  font-size: 16px;
+}
+
+.gev-chat-status {
+  padding: 5px 12px;
+  font-size: 10.5px;
+  color: rgba(226, 232, 240, 0.62);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.gev-chat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 8px 12px 4px;
+}
+
+.gev-chat-chip {
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: #cbd5e1;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.gev-chat-chip:hover {
+  border-color: rgba(34, 211, 238, 0.45);
+  color: #67e8f9;
+}
+
+.gev-chat-messages {
+  flex: 1 1 auto;
+  min-height: 110px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gev-chat-empty {
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(226, 232, 240, 0.56);
+}
+
+.gev-chat-msg {
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.gev-chat-msg[data-role='user'] {
+  align-self: flex-end;
+  max-width: 86%;
+  background: rgba(34, 211, 238, 0.12);
+  border-color: rgba(34, 211, 238, 0.28);
+}
+
+.gev-chat-msg[data-role='assistant'] {
+  align-self: flex-start;
+  max-width: 92%;
+}
+
+.gev-chat-msg-role {
+  display: block;
+  margin-bottom: 2px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #67e8f9;
+}
+
+.gev-chat-msg-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.gev-chat-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 9px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 12, 18, 0.85);
+}
+
+.gev-chat-attach-btn,
+.gev-chat-layer-select {
+  min-height: 34px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #cbd5e1;
+  font-size: 11px;
+  padding: 0 7px;
+}
+
+.gev-chat-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  resize: none;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(15, 21, 33, 0.9);
+  color: #f8fafc;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.gev-chat-input:focus {
+  outline: none;
+  border-color: #22d3ee;
+}
+
+.gev-chat-icon-btn,
+.gev-chat-send-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.gev-chat-send-btn {
+  background: #0284c7;
+  border-color: #0284c7;
+  color: #ffffff;
+}
+
+.gev-chat-send-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.gev-chat-icon-btn.is-listening {
+  background: rgba(225, 29, 72, 0.55);
+  border-color: rgba(244, 63, 94, 0.8);
+  color: #ffffff;
+}
+
+.gev-chat-stop-btn {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
 }
 
 /* Adaptive tablet / narrow desktop refinements */
@@ -407,7 +726,9 @@
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color 150ms ease, border-color 150ms ease;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
 }
 
 .rey-btn-accent {
@@ -800,7 +1121,9 @@ body.is-mobile-remote {
   justify-content: center;
   gap: 6px;
   touch-action: manipulation;
-  transition: transform 120ms ease, background-color 140ms ease;
+  transition:
+    transform 120ms ease,
+    background-color 140ms ease;
 }
 
 .rem-btn:active {
@@ -872,7 +1195,11 @@ body.is-mobile-remote {
   height: clamp(190px, 32vh, 270px);
   border-radius: 12px;
   border: 1px solid rgba(34, 211, 238, 0.22);
-  background: radial-gradient(circle at 50% 50%, rgba(34, 211, 238, 0.08) 0%, #090c12 72%);
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(34, 211, 238, 0.08) 0%,
+    #090c12 72%
+  );
   touch-action: none;
   user-select: none;
   overflow: hidden;
@@ -1081,9 +1408,9 @@ body.is-mobile-remote {
 
 .rem-bottom-nav {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 4px;
-  padding: 6px 10px max(8px, env(safe-area-inset-bottom));
+  padding: 6px 8px max(8px, env(safe-area-inset-bottom));
   background: rgba(13, 18, 28, 0.96);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
@@ -1109,4 +1436,87 @@ body.is-mobile-remote {
 .rem-nav-btn.is-active {
   color: #22d3ee;
   background: rgba(34, 211, 238, 0.1);
+}
+
+/* Mobile Remote Gemini Voz AI tab */
+.rem-ai-mic-row {
+  display: flex;
+}
+
+.rem-ai-mic-btn {
+  width: 100%;
+  min-height: 50px;
+  font-size: 14px;
+}
+
+.rem-ai-mic-btn.is-listening {
+  background: #e11d48;
+  border-color: #fb7185;
+  color: #ffffff;
+}
+
+.rem-btn.is-on {
+  border-color: rgba(34, 211, 238, 0.5);
+  color: #67e8f9;
+  background: rgba(34, 211, 238, 0.14);
+}
+
+.rem-ai-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 150px;
+  max-height: 36vh;
+  overflow-y: auto;
+  padding: 10px;
+  border-radius: 10px;
+  background: #090c12;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.rem-ai-msg {
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.rem-ai-msg.is-user {
+  align-self: flex-end;
+  max-width: 88%;
+  background: rgba(34, 211, 238, 0.12);
+  border-color: rgba(34, 211, 238, 0.3);
+}
+
+.rem-ai-msg.is-model {
+  align-self: flex-start;
+  max-width: 94%;
+}
+
+.rem-ai-msg-role {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #67e8f9;
+  margin-bottom: 2px;
+}
+
+.rem-ai-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.rem-ai-tool-badge {
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  background: rgba(34, 211, 238, 0.1);
+  color: #67e8f9;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
 }

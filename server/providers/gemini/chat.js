@@ -78,14 +78,58 @@ export function validChatContents(contents, names) {
   );
 }
 
+function formatChatContext(context) {
+  if (!context || typeof context !== 'object' || Array.isArray(context))
+    return '';
+  const parts = [];
+  if (typeof context.locale === 'string' && context.locale.trim()) {
+    parts.push(`User locale: ${context.locale.trim().slice(0, 16)}`);
+  }
+  if (context.camera && typeof context.camera === 'object') {
+    const lat = Number(context.camera.lat ?? context.camera.latitude);
+    const lon = Number(context.camera.lon ?? context.camera.longitude);
+    const alt = Number(context.camera.altitudeM ?? context.camera.height);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      parts.push(
+        `Camera target: ${lat.toFixed(4)}, ${lon.toFixed(4)}` +
+          (Number.isFinite(alt) ? ` at ${Math.round(alt)} m altitude` : ''),
+      );
+    }
+  }
+  if (typeof context.visualStyle === 'string' && context.visualStyle.trim()) {
+    parts.push(
+      `Active visual style: ${context.visualStyle.trim().slice(0, 32)}`,
+    );
+  }
+  if (Array.isArray(context.enabledLayers)) {
+    const layers = context.enabledLayers
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .slice(0, 24);
+    parts.push(
+      layers.length
+        ? `Enabled data layers: ${layers.join(', ')}`
+        : 'Enabled data layers: none',
+    );
+  }
+  if (
+    typeof context.trackedEntity === 'string' &&
+    context.trackedEntity.trim()
+  ) {
+    parts.push(`Tracked entity: ${context.trackedEntity.trim().slice(0, 120)}`);
+  }
+  return parts.length
+    ? `\n\nLIVE SCENE TELEMETRY (use to give dynamic, context-aware answers):\n${parts.join('\n')}`
+    : '';
+}
+
 export function createGeminiChatHandler({
   annotationGuidance,
   tools = GEV_REALTIME_TOOLS,
   // osm_query is offered, and the prompt names it, only with Overpass, as
   // for voice.
   overpassConfigured = () => resolveOverpassUpstreams().length > 0,
-  resolveChatModel = () =>
-    process.env.GEMINI_CHAT_MODEL || 'gemini-3.5-flash-lite',
+  resolveChatModel = () => process.env.GEMINI_CHAT_MODEL || 'gemini-4-hydrogen',
   resolveApiKey = () => process.env.GEMINI_API_KEY,
   resolveProviderRateLimit = () => process.env.GEV_RATELIMIT_GEMINI_PER_MIN,
   ...options
@@ -101,20 +145,30 @@ export function createGeminiChatHandler({
       if (!model || /live|audio|tts/i.test(model)) return { errorStatus: 503 };
       if (
         !object(input) ||
-        !keys(input, ['contents']) ||
+        !keys(input, ['provider', 'contents', 'context']) ||
+        (input.provider !== undefined && input.provider !== 'gemini') ||
+        (input.context !== undefined &&
+          input.context !== null &&
+          !object(input.context)) ||
         !validChatContents(input.contents, null)
       )
         return null;
       if (!pairedContents(input.contents)) return null;
       const overpass = overpassConfigured();
+      const sceneContextBlock = formatChatContext(input.context);
       return {
         endpoint: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-        headers: (key) => ({ 'x-goog-api-key': key }),
+        headers: (key) => ({
+          'x-goog-api-key': key,
+          'User-Agent': 'aistudio-build',
+        }),
         body: {
           contents: input.contents,
           systemInstruction: {
             parts: [
-              { text: textInstructions(annotationGuidance, { overpass }) },
+              {
+                text: `${textInstructions(annotationGuidance, { overpass })}${sceneContextBlock}`,
+              },
             ],
           },
           tools: [
@@ -129,7 +183,6 @@ export function createGeminiChatHandler({
             },
           ],
           generationConfig: {
-            responseModalities: ['TEXT'],
             maxOutputTokens: 4096,
             thinkingConfig: { thinkingLevel: 'LOW' },
           },

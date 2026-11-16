@@ -23,9 +23,10 @@ export class GevRealtimeController {
     const runAction = (name, args, options) =>
       this.runner?.(name, args, options);
 
+    this._createHooks = { emit, runAction, ui, signal };
     this.adapter =
       typeof createAdapter === 'function'
-        ? createAdapter({ emit, runAction, ui, signal })
+        ? createAdapter(this._createHooks)
         : null;
 
     if (signal) {
@@ -33,6 +34,17 @@ export class GevRealtimeController {
       signal.addEventListener('abort', this._onAbort, { once: true });
       if (signal.aborted) this.destroy();
     }
+  }
+
+  setAdapterFactory(createAdapter) {
+    if (this.destroyed || typeof createAdapter !== 'function') return false;
+    try {
+      this.adapter?.stop?.({ preserveStatus: false });
+    } catch {
+      /* ignore */
+    }
+    this.adapter = createAdapter(this._createHooks);
+    return true;
   }
 
   _emit(event) {

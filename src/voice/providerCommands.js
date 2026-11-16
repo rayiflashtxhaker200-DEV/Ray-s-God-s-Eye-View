@@ -5,17 +5,24 @@ export function createProviderCommands(
   options = {},
   { bind, factories = {} } = {},
 ) {
-  const supported =
-    Array.isArray(options.supportedProviders) && options.supportedProviders.length
+  const supported = (
+    Array.isArray(options.supportedProviders) &&
+    options.supportedProviders.length
       ? options.supportedProviders
-      : Object.keys(factories);
+      : Object.keys(factories)
+  ).filter((id) => typeof factories[id] === 'function');
   const initialProvider =
     options.provider && factories[options.provider]
       ? options.provider
-      : supported[0] || 'gemini';
+      : supported.includes('gemini')
+        ? 'gemini'
+        : supported[0] || 'gemini';
 
   return bind({
     ...options,
+    supportedProviders: supported,
+    initialProvider,
+    providerFactories: factories,
     createSession:
       factories[initialProvider] ||
       factories.gemini ||

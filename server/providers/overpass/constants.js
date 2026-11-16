@@ -124,6 +124,19 @@ const OVERPASS_AREA_ELEMENT_RE = new RegExp(
 const OVERPASS_BBOX_RE =
   /\(\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*\)/;
 
+function resolveOverpassUpstreams(raw = process.env.OVERPASS_UPSTREAMS) {
+  if (typeof raw !== 'string') return [];
+  return raw
+    .split(/[,\s]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function resolveOverpassUpstreamTag(raw = process.env.OVERPASS_UPSTREAMS) {
+  const upstreams = resolveOverpassUpstreams(raw);
+  return upstreams.length > 0 ? upstreams.join(',') : 'none';
+}
+
 export {
   OVERPASS_BOUNDARY_DISK_TTL_MS,
   OVERPASS_DISK_TTL_MS,
@@ -145,4 +158,6 @@ export {
   OVERPASS_UPSTREAMS,
   OVERPASS_USER_AGENT,
   OVERPASS_TIMEOUT_MS,
+  resolveOverpassUpstreams,
+  resolveOverpassUpstreamTag,
 };

@@ -1,0 +1,70 @@
+{
+  "hash": "7566c193",
+  "configHash": "029e6208",
+  "lockfileHash": "a64b8acd",
+  "browserHash": "24d46720",
+  "optimized": {
+    "@jtarrio/webrtlsdr/rtlsdr.js": {
+      "src": "../../@jtarrio/webrtlsdr/dist/rtlsdr.js",
+      "file": "@jtarrio_webrtlsdr_rtlsdr__js.js",
+      "fileHash": "9a56ab14",
+      "needsInterop": false
+    },
+    "@mapbox/vector-tile": {
+      "src": "../../@mapbox/vector-tile/index.js",
+      "file": "@mapbox_vector-tile.js",
+      "fileHash": "050b88e8",
+      "needsInterop": false
+    },
+    "cesium": {
+      "src": "../../cesium/Source/Cesium.js",
+      "file": "cesium.js",
+      "fileHash": "64011f3c",
+      "needsInterop": false
+    },
+    "egm96-universal": {
+      "src": "../../egm96-universal/dist/egm96-universal.esm.js",
+      "file": "egm96-universal.js",
+      "fileHash": "b4d878f7",
+      "needsInterop": false
+    },
+    "mgrs": {
+      "src": "../../mgrs/dist/mgrs.esm.js",
+      "file": "mgrs.js",
+      "fileHash": "64d6309a",
+      "needsInterop": false
+    },
+    "pbf": {
+      "src": "../../pbf/index.js",
+      "file": "pbf.js",
+      "fileHash": "8e01b30f",
+      "needsInterop": false
+    },
+    "pinia": {
+      "src": "../../pinia/dist/pinia.mjs",
+      "file": "pinia.js",
+      "fileHash": "24fa31f1",
+      "needsInterop": false
+    },
+    "satellite.js": {
+      "src": "../../satellite.js/dist/satellite.es.js",
+      "file": "satellite__js.js",
+      "fileHash": "cb58a02c",
+      "needsInterop": false
+    },
+    "vue": {
+      "src": "../../vue/dist/vue.runtime.esm-bundler.js",
+      "file": "vue.js",
+      "fileHash": "d6731e5c",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-CQSGXKFP": {
+      "file": "chunk-CQSGXKFP.js"
+    },
+    "chunk-KEXKKQVW": {
+      "file": "chunk-KEXKKQVW.js"
+    }
+  }
+}

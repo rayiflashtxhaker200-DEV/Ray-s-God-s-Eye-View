@@ -1,0 +1,33 @@
+Informe para Google AI Studio
+Problema inicial: fallaron los cuatro jobs de GitHub Actions porque npm ci detectó que el manifiesto y el lockfile no coincidían:
+
+package.json declara @google/genai: ^3.3.0.
+package-lock.json fijaba @google/genai en 2.32.0.
+GitHub reportó: Invalid: lock file's @google/genai@2.32.0 does not satisfy @google/genai@3.3.0. Por eso los jobs de Node 24, Node 26, Street Level y Windows fallaron antes de ejecutar sus pruebas.
+
+Otros problemas detectados al continuar la validación
+Tras actualizar localmente el lockfile, npm ci terminó correctamente. Sin embargo, aparecieron fallas que esos jobs todavía no habían alcanzado:
+
+Archivos de build ausentes
+
+npm run format:check falla porque no existe build/vite.js.
+scripts/format-scope.json incluye ese archivo en el alcance de formato.
+También faltan referencias a build/allowedHosts.js y build/vite.js desde server/standalone/vite.config.js y build/allowedHosts.js desde server/providers/gemini/request.js.
+package.json exporta build/vite.js y build/registerVue.js; la carpeta build/ no está en la copia local.
+Límites de módulos
+
+npm run check:boundaries reporta imports ausentes y violaciones de arquitectura.
+Entre ellas: src/data/bhoteKoshiEvent.js llega a APIs del navegador, Cesium y módulos de UI/renderizado; src/navigationPolicy.js usa window; src/i18n/locale.js usa localStorage y navigator.
+También faltan entradas portables para src/voice/session.js, src/layers/gnss/source.js y src/layers/droneAirspace/source.js; y src/voice/sessionCommands.js importa el controlador de protocolo realtime, algo que el chequeo prohíbe.
+Pruebas unitarias
+
+npm test presentó numerosas fallas en áreas de estado de feeds, outlines/geocodificación, anotaciones, controles de UI y lifecycle. Detuve la ejecución durante la investigación; por tanto, no hay un recuento final completo.
+Hay imports incompatibles entre pruebas y código: src/annotations/outlineRungs.test.mjs y su prueba fallback esperan decodeOpenFreeMapOutlineTile, que no está exportado por el módulo correspondiente; src/data/alprCameras.test.mjs espera shownEntityLabel desde src/voice/speech.js.
+Se reportaron además fallas en chips/controles de filas y en pruebas de lifecycle.
+Comprobaciones que sí pasaron
+npm ci, después de actualizar el lockfile.
+npm run doctor -- --json.
+npm run build (con advertencias de recursos de sky y tamaño de chunks).
+Estado de cambios: no subí ningún arreglo nuevo a GitHub. El commit remoto sigue en c01c336. En la copia local, package-lock.json quedó modificado pero sin commit; .aistudio/ continúa sin seguimiento y no se subió.
+
+Solicitud sugerida para AI Studio: sincronizar manifiesto y lockfile; restaurar o crear los módulos ausentes de build/; corregir las violaciones de límites y los imports/exportaciones incompatibles; luego ejecutar los comandos del workflow (npm ci, doctor, formato, límites, pruebas, build y gates de navegador/Windows). No debilitar ni omitir los chequeos para hacerlos pasar.

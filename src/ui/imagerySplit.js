@@ -16,6 +16,18 @@ function defaultValueText(beforePercent, afterPercent) {
   return `A ${beforePercent} percent, B ${afterPercent} percent`;
 }
 
+export function globeSplitTarget(globe) {
+  if (!globe) return null;
+  return {
+    get splitPosition() {
+      return globe.splitPosition;
+    },
+    set splitPosition(value) {
+      globe.splitPosition = value;
+    },
+  };
+}
+
 /**
  * Split divider for before/after imagery comparison.
  *

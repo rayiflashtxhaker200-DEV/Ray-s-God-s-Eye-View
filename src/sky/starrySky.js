@@ -145,12 +145,14 @@ export class StarrySky {
    */
   constructor({
     requestRender = () => governorRequestRender('sky-assets'),
+    loadAssets = !(typeof import.meta !== 'undefined' && import.meta.env?.PROD),
   } = {}) {
     /** Matches `SkyBox#show`. */
     this.show = true;
     this.milkyWayIntensity = MILKY_WAY_INTENSITY;
     /** 0..1 multiplier a style sets to hide the glow (see visualEffects.js). */
     this.milkyWayVisibility = 1;
+    this._loadAssets = Boolean(loadAssets);
     this._requestRender = requestRender;
     this._rotation = Cesium.Matrix3.clone(Cesium.Matrix3.IDENTITY);
     this._rotationTime = undefined;
@@ -193,7 +195,7 @@ export class StarrySky {
 
   /** Start loading assets; failures leave a plain black sky. */
   _load() {
-    if (this._loading) return;
+    if (this._loading || !this._loadAssets) return;
     this._loading = true;
     loadBundledJson(STAR_PACK_URL)
       .then((pack) => {

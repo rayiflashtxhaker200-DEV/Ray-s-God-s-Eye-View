@@ -104,13 +104,25 @@ export function toReadable(body) {
  * @param {object} [opts]
  * @param {string} [opts.sourceHeader='upstream'] - Value for X-CCTV-Source header.
  */
+export function parseRasterImageType(rawContentType) {
+  const raw = String(rawContentType || '').trim();
+  if (!raw) return null;
+  const mediaType = raw.split(';')[0].trim().toLowerCase();
+  if (!mediaType.startsWith('image/') || mediaType === 'image/svg+xml') {
+    return null;
+  }
+  return mediaType;
+}
+
 export async function proxyMediaResponse(
   res,
   upstream,
-  { sourceHeader = 'upstream' } = {},
+  { sourceHeader = 'upstream', contentType: contentTypeOverride = '' } = {},
 ) {
   const contentType =
-    upstream.headers.get('content-type') || 'application/octet-stream';
+    contentTypeOverride ||
+    upstream.headers.get('content-type') ||
+    'application/octet-stream';
   const cacheControl = upstream.headers.get('cache-control') || 'no-store';
   const contentLength = upstream.headers.get('content-length');
   const contentRange = upstream.headers.get('content-range');
@@ -296,7 +308,11 @@ export async function fetchCctvMediaUpstream(
   if (downstream?.aborted) controller.abort();
   else downstream?.addEventListener?.('abort', onDownstreamAbort);
   try {
-    return await fetchImpl(url, { headers, signal: controller.signal });
+    return await fetchWithinHost(
+      url,
+      { headers, signal: controller.signal },
+      fetchImpl,
+    );
   } finally {
     clearTimeout(timeoutId);
     downstream?.removeEventListener?.('abort', onDownstreamAbort);
@@ -499,9 +515,16 @@ export async function fetchCctvImageFromUpstream(
       fetchImpl,
     );
     if (!upstream) return null;
-    const contentType = upstream.headers.get('content-type') || '';
-    if (!upstream.ok || !contentType.startsWith('image/')) {
+    const contentType = parseRasterImageType(
+      upstream.headers.get('content-type'),
+    );
+    if (!upstream.ok || !contentType) {
       controller.abort();
+      try {
+        await upstream.body?.cancel();
+      } catch {
+        /* no-op */
+      }
       return null;
     }
     const body = await readCappedResponseBytes(upstream, maxBytes);

@@ -55,6 +55,19 @@ import {
   DEFAULT_CALGARY_MAX_SOURCES,
   CALGARY_DOWNTOWN,
   CALGARY_MAX_CATALOG_BYTES,
+  DEFAULT_VEGVESEN_CCTV_URL,
+  VEGVESEN_IMAGE_ORIGIN,
+  VEGVESEN_VIDEO_ORIGIN,
+  DEFAULT_VEGVESEN_MAX_SOURCES,
+  VEGVESEN_ANCHORS,
+  KARTVERKET_HEIGHT_URL,
+  KARTVERKET_MAX_POINTS,
+  KARTVERKET_CONCURRENCY,
+  KARTVERKET_CATALOG_WAIT_MS,
+  KARTVERKET_FAILURE_BACKOFF_MS,
+  KARTVERKET_MAX_RESPONSE_BYTES,
+  KARTVERKET_NULL_TTL_MS,
+  KARTVERKET_USER_AGENT,
   CCTV_SOURCE_FETCH_TIMEOUT_MS,
 } from './constants.js';
 import {
@@ -1589,6 +1602,472 @@ export async function loadCalgarySourcesFromOpenData() {
   } catch (error) {
     console.warn(
       '[CCTV] Calgary camera download error:',
+      error?.message || error,
+    );
+    return [];
+  }
+}
+
+function isLikelyNorwayCoordinate(lat, lon) {
+  return (
+    isPlausibleLatLon(lat, lon) &&
+    lat >= 57.5 &&
+    lat <= 71.5 &&
+    lon >= 4.0 &&
+    lon <= 32.0
+  );
+}
+
+const VEGVESEN_CAMERA_ID_RE = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
+
+/**
+ * One Statens vegvesen `datex_3_1:CctvSimple` feature -> one catalog source, or null.
+ *
+ * Pins stillImageUrl to the exact official camera path and optional HLS
+ * videoUrl to its exact official manifest path.
+ *
+ * @param {object} feature
+ * @returns {?object}
+ */
+export function vegvesenCameraToSource(feature) {
+  if (!feature || typeof feature !== 'object') return null;
+  const coords = feature?.geometry?.coordinates;
+  if (!Array.isArray(coords) || coords.length < 2) return null;
+  const lon = typeof coords[0] === 'number' ? coords[0] : NaN;
+  const lat = typeof coords[1] === 'number' ? coords[1] : NaN;
+  if (!isLikelyNorwayCoordinate(lat, lon)) return null;
+
+  const props = feature.properties;
+  if (!props || typeof props !== 'object') return null;
+
+  const availability = String(
+    props['status.stillImageAvailability'] ?? '',
+  ).trim();
+  if (availability && availability !== 'videoOrImagesAvailable') return null;
+
+  const cameraId = String(props.cameraId ?? '').trim();
+  if (!cameraId || !VEGVESEN_CAMERA_ID_RE.test(cameraId)) return null;
+
+  const stillImageUrl = String(props.stillImageUrl ?? '').trim();
+  const expectedStillUrl = `${VEGVESEN_IMAGE_ORIGIN}api/images/${cameraId}`;
+  if (stillImageUrl !== expectedStillUrl) return null;
+
+  const videoEnabled = String(process.env.CCTV_VEGVESEN_VIDEO ?? '1').trim() !== '0';
+  const rawVideoUrl = String(props.videoUrl ?? '').trim();
+  const videoEncoding = String(props.videoEncodingStandard ?? '')
+    .trim()
+    .toLowerCase();
+  const videoLevel = Number(props.videoServiceLevel);
+  const expectedVideoUrl = `${VEGVESEN_VIDEO_ORIGIN}public/${cameraId}/manifest.m3u8`;
+  const hasLiveHls =
+    videoEnabled &&
+    rawVideoUrl === expectedVideoUrl &&
+    (videoEncoding === 'hls' ||
+      (!videoEncoding && Number.isFinite(videoLevel) && videoLevel >= 1));
+
+  const roadNumber = String(props.roadNumber ?? '').trim();
+  const description = String(props.description ?? '').trim();
+  const orientation = String(props.orientationDescription ?? '').trim();
+  const baseLabel =
+    [roadNumber, description].filter(Boolean).join(' ') || cameraId;
+  const name = orientation ? `${baseLabel} → ${orientation}` : baseLabel;
+
+  const id = `no-vegvesen-${cameraId}`;
+  return {
+    id,
+    name,
+    city: 'Norway',
+    cityId: 'norway',
+    provider: 'Statens vegvesen',
+    lat,
+    lon,
+    headingDeg: fallbackHeadingFromId(id),
+    headingConfidence: 'low',
+    pitchDeg: -18,
+    fovDeg: 44,
+    rangeM: 145,
+    mountHeightM: 8,
+    groundElevationM: 150,
+    feedType: hasLiveHls ? 'hls' : 'image',
+    url: hasLiveHls ? expectedVideoUrl : expectedStillUrl,
+    snapshotUrl: expectedStillUrl,
+    sourceKind: 'vegvesen-datex',
+    license: 'Statens vegvesen — Norwegian Public Roads Administration, NLOD 2.0',
+    code: cameraDisplayCode((description || baseLabel || cameraId).toUpperCase()),
+  };
+}
+
+function kartverketCoordKey(lon, lat) {
+  return `${Number(lon).toFixed(6)},${Number(lat).toFixed(6)}`;
+}
+
+/**
+ * Parse a Retry-After header value into milliseconds, clamped to [1 min, 1 h].
+ * Falls back to KARTVERKET_FAILURE_BACKOFF_MS when absent or unparseable.
+ */
+export function kartverketBackoffMs(retryAfterHeader, now = Date.now()) {
+  if (retryAfterHeader == null) return KARTVERKET_FAILURE_BACKOFF_MS;
+  const text = String(retryAfterHeader).trim();
+  if (!text) return KARTVERKET_FAILURE_BACKOFF_MS;
+  let ms = NaN;
+  if (/^\d+$/.test(text)) {
+    ms = Number(text) * 1000;
+  } else {
+    const parsed = Date.parse(text);
+    if (Number.isFinite(parsed)) ms = parsed - now;
+  }
+  if (!Number.isFinite(ms)) return KARTVERKET_FAILURE_BACKOFF_MS;
+  return Math.max(60_000, Math.min(3_600_000, ms));
+}
+
+/**
+ * Batch-query Kartverket Hoydedata v1 terrain elevations for Norwegian cameras.
+ * Sends at most KARTVERKET_MAX_POINTS per request and at most
+ * KARTVERKET_CONCURRENCY requests in flight under a shared deadline.
+ */
+export async function fetchKartverketHeights(
+  cameras,
+  { timeoutMs = 15_000, requestTimeoutMs = 8_000 } = {},
+) {
+  const heights = new Map();
+  const seenPoints = new Map();
+  for (const cam of Array.isArray(cameras) ? cameras : []) {
+    if (!cam || typeof cam !== 'object') continue;
+    if (typeof cam.lat !== 'number' || typeof cam.lon !== 'number') continue;
+    if (!isLikelyNorwayCoordinate(cam.lat, cam.lon)) continue;
+    const key = kartverketCoordKey(cam.lon, cam.lat);
+    if (!seenPoints.has(key)) seenPoints.set(key, [cam.lon, cam.lat]);
+  }
+  const uniquePoints = [...seenPoints.values()];
+  if (!uniquePoints.length) return { heights, failure: null };
+
+  const batches = [];
+  for (let i = 0; i < uniquePoints.length; i += KARTVERKET_MAX_POINTS) {
+    batches.push(uniquePoints.slice(i, i + KARTVERKET_MAX_POINTS));
+  }
+
+  const overallController = new AbortController();
+  let deadlineHit = false;
+  let stopQueue = false;
+  let failure = null;
+
+  const deadlineTimer = setTimeout(() => {
+    deadlineHit = true;
+    stopQueue = true;
+    overallController.abort(
+      new DOMException('Kartverket lookup deadline exceeded', 'TimeoutError'),
+    );
+  }, timeoutMs);
+
+  let nextBatchIndex = 0;
+  const workerCount = Math.min(KARTVERKET_CONCURRENCY, batches.length);
+
+  const runWorker = async () => {
+    while (
+      !stopQueue &&
+      !overallController.signal.aborted &&
+      nextBatchIndex < batches.length
+    ) {
+      const batch = batches[nextBatchIndex++];
+      const reqController = new AbortController();
+      const onOverallAbort = () =>
+        reqController.abort(overallController.signal.reason);
+      if (overallController.signal.aborted) {
+        onOverallAbort();
+      } else {
+        overallController.signal.addEventListener('abort', onOverallAbort, {
+          once: true,
+        });
+      }
+      const reqTimer = setTimeout(() => {
+        reqController.abort(
+          new DOMException('Kartverket request timed out', 'TimeoutError'),
+        );
+      }, requestTimeoutMs);
+
+      try {
+        const url = new URL(KARTVERKET_HEIGHT_URL);
+        url.searchParams.set('koordsys', '4258');
+        url.searchParams.set('punkter', JSON.stringify(batch));
+        const resp = await fetch(url.toString(), {
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': KARTVERKET_USER_AGENT,
+          },
+          redirect: 'error',
+          signal: reqController.signal,
+        });
+
+        if (resp.status === 429 || resp.status >= 500) {
+          const retryAfter = resp.headers?.get?.('retry-after') ?? null;
+          try {
+            await resp.body?.cancel();
+          } catch {
+            /* no-op */
+          }
+          failure ||= { status: resp.status, retryAfter, deadline: false };
+          stopQueue = true;
+          return;
+        }
+
+        if (resp.status >= 400 && resp.status < 500) {
+          try {
+            await resp.body?.cancel();
+          } catch {
+            /* no-op */
+          }
+          for (const [lon, lat] of batch) {
+            heights.set(kartverketCoordKey(lon, lat), null);
+          }
+          continue;
+        }
+
+        if (!resp.ok) {
+          try {
+            await resp.body?.cancel();
+          } catch {
+            /* no-op */
+          }
+          failure ||= { status: resp.status, retryAfter: null, deadline: false };
+          stopQueue = true;
+          return;
+        }
+
+        const payload = await readResponseJsonCapped(
+          resp,
+          KARTVERKET_MAX_RESPONSE_BYTES,
+        );
+        if (!payload || !Array.isArray(payload.punkter)) {
+          failure ||= { status: null, retryAfter: null, deadline: false };
+          stopQueue = true;
+          return;
+        }
+
+        const asked = new Set(
+          batch.map(([lon, lat]) => kartverketCoordKey(lon, lat)),
+        );
+        for (const key of asked) heights.set(key, null);
+
+        for (const point of payload.punkter) {
+          const px = typeof point?.x === 'number' ? point.x : Number(point?.x);
+          const py = typeof point?.y === 'number' ? point.y : Number(point?.y);
+          if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
+          const key = kartverketCoordKey(px, py);
+          if (!asked.has(key)) continue;
+
+          if (
+            point?.datakilde === 'dybdekurver' ||
+            point?.terreng === 'Havflate'
+          ) {
+            heights.set(key, 0);
+            continue;
+          }
+
+          const rawZ = point?.z;
+          const pz =
+            rawZ === null || rawZ === undefined ? NaN : Number(rawZ);
+          if (!Number.isFinite(pz) || pz < -20 || pz > 2500) {
+            heights.set(key, null);
+            continue;
+          }
+          heights.set(key, Math.round(pz * 10) / 10);
+        }
+      } catch {
+        if (deadlineHit || overallController.signal.aborted) {
+          failure = { status: null, retryAfter: null, deadline: true };
+        } else {
+          failure ||= { status: null, retryAfter: null, deadline: false };
+        }
+        stopQueue = true;
+        return;
+      } finally {
+        clearTimeout(reqTimer);
+        overallController.signal.removeEventListener('abort', onOverallAbort);
+      }
+    }
+  };
+
+  try {
+    await Promise.all(Array.from({ length: workerCount }, runWorker));
+  } finally {
+    clearTimeout(deadlineTimer);
+  }
+
+  if (deadlineHit) {
+    failure = { status: null, retryAfter: null, deadline: true };
+  }
+  return { heights, failure };
+}
+
+const kartverketHeightCache = new Map();
+let kartverketBackoffUntil = 0;
+let kartverketCacheGeneration = 0;
+let kartverketInflight = null;
+
+export function clearKartverketHeightCache() {
+  kartverketHeightCache.clear();
+  kartverketBackoffUntil = 0;
+  kartverketCacheGeneration += 1;
+  kartverketInflight = null;
+}
+
+/**
+ * Populate `groundElevationM` on Vegvesen cameras from the Kartverket height cache,
+ * launching at most one background lookup for uncached points.
+ *
+ * @returns {Promise<number>} Count of cameras whose `groundElevationM` was updated from Kartverket.
+ */
+export async function applyVegvesenGroundHeights(
+  cameras,
+  { now = Date.now, timeoutMs, waitMs = KARTVERKET_CATALOG_WAIT_MS } = {},
+) {
+  if (String(process.env.CCTV_VEGVESEN_HEIGHTS ?? '1').trim() === '0') {
+    return 0;
+  }
+  const list = Array.isArray(cameras) ? cameras : [];
+  if (!list.length) return 0;
+
+  const inspectCache = (nowMs) => {
+    let applied = 0;
+    let hasWarm = false;
+    const missing = [];
+    const seenMissing = new Set();
+
+    for (const cam of list) {
+      if (!cam || typeof cam !== 'object') continue;
+      if (typeof cam.lat !== 'number' || typeof cam.lon !== 'number') continue;
+      if (!isLikelyNorwayCoordinate(cam.lat, cam.lon)) continue;
+      const key = kartverketCoordKey(cam.lon, cam.lat);
+      const cached = kartverketHeightCache.get(key);
+      if (cached) {
+        if (cached.value !== null) {
+          cam.groundElevationM = cached.value;
+          applied += 1;
+          hasWarm = true;
+          continue;
+        }
+        if (nowMs < cached.expiresAt) {
+          hasWarm = true;
+          continue;
+        }
+      }
+      if (!seenMissing.has(key)) {
+        seenMissing.add(key);
+        missing.push(cam);
+      }
+    }
+    return { applied, hasWarm, missing };
+  };
+
+  const initialNow = now();
+  const initial = inspectCache(initialNow);
+  if (!initial.missing.length || initialNow < kartverketBackoffUntil) {
+    return initial.applied;
+  }
+
+  if (!kartverketInflight) {
+    const gen = kartverketCacheGeneration;
+    const startedAt = initialNow;
+    kartverketInflight = fetchKartverketHeights(initial.missing, { timeoutMs })
+      .then(({ heights, failure }) => {
+        if (gen !== kartverketCacheGeneration) return;
+        const resolvedAt = now();
+        for (const [key, value] of heights.entries()) {
+          kartverketHeightCache.set(key, {
+            value,
+            expiresAt: value === null ? resolvedAt + KARTVERKET_NULL_TTL_MS : Infinity,
+          });
+        }
+        if (failure && !failure.deadline) {
+          const backoffMs =
+            failure.status === 429
+              ? kartverketBackoffMs(failure.retryAfter, startedAt)
+              : KARTVERKET_FAILURE_BACKOFF_MS;
+          kartverketBackoffUntil = Math.max(
+            kartverketBackoffUntil,
+            resolvedAt + backoffMs,
+          );
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (gen === kartverketCacheGeneration) {
+          kartverketInflight = null;
+        }
+      });
+  }
+
+  if (initial.hasWarm || !(waitMs > 0)) {
+    return initial.applied;
+  }
+
+  let waitTimer = null;
+  await Promise.race([
+    kartverketInflight,
+    new Promise((resolve) => {
+      waitTimer = setTimeout(resolve, waitMs);
+    }),
+  ]);
+  if (waitTimer !== null) clearTimeout(waitTimer);
+
+  return inspectCache(now()).applied;
+}
+
+/**
+ * Fetch Statens vegvesen road cameras across Norway (keyless OGC API Features),
+ * including HLS live streams where published, and enrich ground heights from
+ * Kartverket within the lane wait budget.
+ *
+ * @returns {Promise<Array<object>>}
+ */
+export async function loadVegvesenSourcesFromOpenData() {
+  const startedAt = Date.now();
+  try {
+    const endpoint =
+      process.env.CCTV_VEGVESEN_URL || DEFAULT_VEGVESEN_CCTV_URL;
+    const resp = await fetch(endpoint, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'gods-eye-view-cctv-proxy/1.0',
+      },
+      signal: AbortSignal.timeout(CCTV_SOURCE_FETCH_TIMEOUT_MS),
+    });
+    if (!resp.ok) {
+      console.warn('[CCTV] Vegvesen camera download failed:', resp.status);
+      return [];
+    }
+    const payload = await resp.json();
+    const features = Array.isArray(payload?.features) ? payload.features : [];
+    const cameras = [];
+    const seen = new Set();
+    for (const feature of features) {
+      const camera = vegvesenCameraToSource(feature);
+      if (!camera || seen.has(camera.id)) continue;
+      seen.add(camera.id);
+      cameras.push(camera);
+    }
+
+    const maxRaw = Number(
+      process.env.CCTV_VEGVESEN_MAX_SOURCES || DEFAULT_VEGVESEN_MAX_SOURCES,
+    );
+    const maxCount = Number.isFinite(maxRaw)
+      ? Math.max(8, Math.min(1500, Math.floor(maxRaw)))
+      : DEFAULT_VEGVESEN_MAX_SOURCES;
+    const prioritized = prioritizeSources(cameras, maxCount, VEGVESEN_ANCHORS);
+
+    const remainingWaitMs = Math.max(
+      0,
+      KARTVERKET_CATALOG_WAIT_MS - (Date.now() - startedAt),
+    );
+    await applyVegvesenGroundHeights(prioritized, { waitMs: remainingWaitMs });
+
+    console.log(
+      `[CCTV] Loaded Vegvesen camera sources: ${cameras.length} (using nearest ${prioritized.length})`,
+    );
+    return prioritized;
+  } catch (error) {
+    console.warn(
+      '[CCTV] Vegvesen camera download error:',
       error?.message || error,
     );
     return [];

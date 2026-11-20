@@ -22,6 +22,25 @@ export function createLifecycle({
   const { onFocusTargetAppear } = services.focus;
   const { releaseContinuousRender } = services.render;
 
+  function selectInitialCctvRecord(records) {
+    if (!Array.isArray(records) || !records.length) return null;
+    const isReal = (r) => {
+      const kind = String(r?.camera?.sourceKind || '').toLowerCase();
+      return (
+        r?.camera?.feedConfigured || (kind !== 'seed' && kind !== 'fallback')
+      );
+    };
+    const isVideo = (r) =>
+      ['hls', 'mp4', 'mjpeg'].includes(
+        String(r?.camera?.feedType || '').toLowerCase(),
+      );
+    return (
+      records.find((r) => isReal(r) && isVideo(r)) ||
+      records.find((r) => isReal(r)) ||
+      records[0]
+    );
+  }
+
   /** Resets all module-scoped runtime state to initial values. */
 
   function clearRuntimeState() {
@@ -210,7 +229,9 @@ export function createLifecycle({
       if (layerState._records.length > 0) {
         // Projection runtime + first frame fetch are deferred to enable() so
         // initializing the catalog stays render-cheap.
-        layerState._activeCameraId = layerState._records[0].camera.id;
+        layerState._activeCameraId =
+          selectInitialCctvRecord(layerState._records)?.camera.id ||
+          layerState._records[0].camera.id;
       }
 
       // Task 5: if the prior batch lost init's bounded race, apply it post-hoc
@@ -356,7 +377,9 @@ export function createLifecycle({
         return Boolean(coverage && layerState._recordById.has(coverage[1]));
       });
       if (!layerState._activeCameraId && layerState._records.length) {
-        layerState._activeCameraId = layerState._records[0].camera.id;
+        layerState._activeCameraId =
+          selectInitialCctvRecord(layerState._records)?.camera.id ||
+          layerState._records[0].camera.id;
         layerState._autoHopSuspended = false;
       }
       const activeRecord = parts.selection.getActiveRecord();
@@ -386,6 +409,7 @@ export function createLifecycle({
     /** Disables the layer: hides entities, stops the projection loop and load queue. */
     disable() {
       layerState._enabled = false;
+      layerState._feedPaused = false;
       unregisterPickOwner('cctv');
       // ADJUST mode does not survive a layer toggle — predictable re-entry.
       layerState._calibrationMode = false;
@@ -459,6 +483,7 @@ export function createLifecycle({
       clearRuntimeState();
       layerState._viewer = null;
       layerState._enabled = false;
+      layerState._feedPaused = false;
       layerState._activeCameraId = null;
       layerState._autoHopSuspended = false;
       // Clear existing subscribers rather than replacing the Set —

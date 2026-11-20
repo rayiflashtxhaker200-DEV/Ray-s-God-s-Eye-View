@@ -2,7 +2,6 @@ import { createCctvCatalog } from './cctv/catalog.js';
 import {
   normalizeFeedType,
   isVideoFeedType,
-  toFiniteNumber,
 } from './cctv/normalize.js';
 import {
   buildSyntheticCctvSvg,
@@ -11,14 +10,65 @@ import {
   fetchTxdotSnapshot,
   fetchCctvMediaUpstream,
   watchDownstreamClose,
+  parseRasterImageType,
 } from './cctv/media.js';
+import { createHlsPuller } from './cctv/stream.js';
 import {
   CCTV_FRAME_FETCH_TIMEOUT_MS,
   CCTV_MAX_SOURCES_CEILING,
 } from './cctv/constants.js';
 import { sanitizeCctvRangeHeader } from './cctv/range.js';
 import { googleServerApiKey } from './places/google-key.js';
+import { admitSameSiteKeyless } from './common/same-site.js';
 export { CCTV_FRAME_FETCH_TIMEOUT_MS, fetchCctvImageFromUpstream };
+
+const FORWARDED_HEADER_NAMES = [
+  'forwarded',
+  'x-forwarded-for',
+  'x-forwarded-host',
+  'x-forwarded-proto',
+  'x-forwarded-port',
+  'x-forwarded-server',
+  'x-real-ip',
+  'cf-connecting-ip',
+  'true-client-ip',
+  'via',
+];
+
+function hasForwardingHeaders(req) {
+  const headers = req?.headers;
+  if (!headers || typeof headers !== 'object') return false;
+  return FORWARDED_HEADER_NAMES.some(
+    (name) =>
+      Object.prototype.hasOwnProperty.call(headers, name) &&
+      headers[name] !== undefined,
+  );
+}
+
+function canonicalLiveMediaType(feedType, rawContentType) {
+  const raw = String(rawContentType || '').trim();
+  if (!raw) return null;
+  const semiIdx = raw.indexOf(';');
+  const mime = (semiIdx === -1 ? raw : raw.slice(0, semiIdx))
+    .trim()
+    .toLowerCase();
+  if (feedType === 'mp4') return mime === 'video/mp4' ? 'video/mp4' : null;
+  if (feedType === 'webm') return mime === 'video/webm' ? 'video/webm' : null;
+  if (feedType === 'mjpeg') {
+    if (mime !== 'multipart/x-mixed-replace') return null;
+    const params = semiIdx === -1 ? '' : raw.slice(semiIdx + 1);
+    const match = /(?:^|;)\s*boundary\s*=\s*(?:"([^"]*)"|([^;\s]*))/i.exec(
+      params,
+    );
+    const boundary = match ? (match[1] ?? match[2] ?? '').trim() : '';
+    if (!boundary) return null;
+    const formatted = /[\s()<>@,;:\\"/[\]?=]/.test(boundary)
+      ? `"${boundary}"`
+      : boundary;
+    return `multipart/x-mixed-replace; boundary=${formatted}`;
+  }
+  return null;
+}
 /**
  * Vite plugin: CCTV camera proxy with source registry, frame/media serving,
  * fallback chain (upstream -> Street View -> synthetic SVG), and health tracking.
@@ -34,6 +84,7 @@ export { CCTV_FRAME_FETCH_TIMEOUT_MS, fetchCctvImageFromUpstream };
  */
 export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
   const getCctvSources = createCctvCatalog({ sourceRoot });
+  const hls = createHlsPuller();
   /** @type {Map<string,{id:string,status:string,sourceKind:string,label:string,message:string,updatedAt:number}>} */
   const health = new Map();
   /** Cap on health map entries to prevent unbounded growth. Sized to the
@@ -68,9 +119,10 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
     return {
       id: cameraId,
       feedType,
-      mediaUrl: isVideoFeedType(feedType)
-        ? `/api/cctv/media/${encodeURIComponent(cameraId)}`
-        : null,
+      mediaUrl:
+        isVideoFeedType(feedType) || feedType === 'mjpeg'
+          ? `/api/cctv/media/${encodeURIComponent(cameraId)}`
+          : null,
       frameUrl: `/api/cctv/frame/${encodeURIComponent(cameraId)}`,
       provider: source?.provider || '',
       sourceKind:
@@ -113,8 +165,15 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
         headers: { 'User-Agent': 'gods-eye-view-cctv-proxy/1.0' },
         signal: AbortSignal.timeout(CCTV_FRAME_FETCH_TIMEOUT_MS),
       });
-      const svType = svResp.headers.get('content-type') || '';
-      if (!svResp.ok || !svType.startsWith('image/')) return null;
+      const svType = parseRasterImageType(svResp.headers.get('content-type'));
+      if (!svResp.ok || !svType) {
+        try {
+          await svResp.body?.cancel();
+        } catch {
+          /* no-op */
+        }
+        return null;
+      }
 
       return {
         ok: true,
@@ -127,13 +186,44 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
   };
 
   const installMiddleware = (server) => {
+    server.httpServer?.once?.('close', () => {
+      void hls.shutdown();
+    });
+
     server.middlewares.use('/api/cctv', async (req, res) => {
+      if (admitSameSiteKeyless(req, res)) return;
       try {
+        const url = new URL(req.url || '/', 'http://localhost');
+
+        const segMatch = /^\/media\/([^/]+)\/seg_(\d+)\.ts$/.exec(url.pathname);
+        if (segMatch) {
+          const cameraId = decodeURIComponent(segMatch[1]);
+          const seq = Number(segMatch[2]);
+          const session = url.searchParams.get('session') || '';
+          const lease = url.searchParams.get('lease') || 'legacy';
+          const body = hls.getSegment(cameraId, session, seq, lease);
+          if (!body) {
+            res.writeHead(404, {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-store',
+            });
+            res.end(JSON.stringify({ error: 'HLS segment not found' }));
+            return;
+          }
+          res.writeHead(200, {
+            'Content-Type': 'video/mp2t',
+            'Content-Length': String(body.length),
+            'Cache-Control': 'no-store',
+            'X-CCTV-Source': 'hls-pull',
+          });
+          res.end(body);
+          return;
+        }
+
         const sources = await getCctvSources();
         const sourceById = new Map(
           sources.map((source) => [source.id, source]),
         );
-        const url = new URL(req.url || '/', 'http://localhost');
 
         if (url.pathname === '/sources') {
           const body = {
@@ -197,10 +287,33 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
           const cameraId =
             decodeURIComponent(url.pathname.replace('/media/', '').trim()) ||
             'camera';
-          const source = sourceById.get(cameraId);
-          const mediaUrl = source?.url || '';
-          const feedType = normalizeFeedType(source?.feedType || 'image');
+          const lease = url.searchParams.get('lease') || 'legacy';
+          if (
+            req.method === 'DELETE' ||
+            url.searchParams.get('action') === 'release'
+          ) {
+            hls.release(cameraId, lease);
+            res.writeHead(204, { 'Cache-Control': 'no-store' });
+            res.end();
+            return;
+          }
 
+          const source = sourceById.get(cameraId);
+          const feedType = normalizeFeedType(source?.feedType || 'image');
+          if (!source || (!isVideoFeedType(feedType) && feedType !== 'mjpeg')) {
+            res.writeHead(404, {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-store',
+            });
+            res.end(
+              JSON.stringify({
+                error: 'No live media for this camera; use the frame endpoint',
+              }),
+            );
+            return;
+          }
+
+          const mediaUrl = source.url || '';
           if (!mediaUrl || !/^https?:\/\//i.test(mediaUrl)) {
             setHealth(cameraId, {
               status: 'degraded',
@@ -225,6 +338,43 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
           // upstream request with them.
           const downstream = watchDownstreamClose(res);
           try {
+            if (feedType === 'hls') {
+              const entry = await hls.ensure(cameraId, mediaUrl, lease);
+              const ready = await hls.waitReady(entry, downstream.signal);
+              if (downstream.closed) return;
+              const playlist = ready
+                ? await hls.buildPlaylist(entry, cameraId, lease)
+                : null;
+              if (!playlist) {
+                setHealth(cameraId, {
+                  status: 'degraded',
+                  sourceKind: 'upstream',
+                  label: source?.provider || 'Configured source',
+                  message: 'Live HLS unavailable',
+                });
+                res.writeHead(downstream.signal.aborted ? 504 : 502, {
+                  'Content-Type': 'application/json',
+                  'Cache-Control': 'no-store',
+                });
+                res.end(JSON.stringify({ error: 'Live HLS unavailable' }));
+                return;
+              }
+              setHealth(cameraId, {
+                status: 'ok',
+                sourceKind: 'live',
+                label: source?.provider || 'Configured source',
+                message: 'Live HLS connected',
+              });
+              res.writeHead(200, {
+                'Content-Type': 'application/vnd.apple.mpegurl',
+                'Content-Length': String(Buffer.byteLength(playlist)),
+                'Cache-Control': 'no-store',
+                'X-CCTV-Source': 'hls-pull',
+              });
+              res.end(playlist);
+              return;
+            }
+
             const upstreamHeaders = {
               'User-Agent': 'gods-eye-view-cctv-proxy/1.0',
             };
@@ -239,13 +389,26 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
             if (downstream.closed) {
               // The headers arrived for a viewer who is no longer there.
               try {
-                await upstream.body?.cancel();
+                await upstream?.body?.cancel();
               } catch {
                 /* already closed */
               }
               return;
             }
-            const contentType = upstream.headers.get('content-type') || '';
+            if (!upstream) {
+              setHealth(cameraId, {
+                status: 'degraded',
+                sourceKind: 'upstream',
+                label: source?.provider || 'Configured source',
+                message: 'Media fetch failed',
+              });
+              res.writeHead(502, {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-store',
+              });
+              res.end(JSON.stringify({ error: 'Media proxy failed' }));
+              return;
+            }
             if (!upstream.ok) {
               try {
                 await upstream.body?.cancel();
@@ -270,34 +433,39 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
               return;
             }
 
-            if (
-              isVideoFeedType(feedType) &&
-              !(
-                contentType.startsWith('video/') ||
-                contentType.includes('mpegurl')
-              )
-            ) {
+            const canonicalType = canonicalLiveMediaType(
+              feedType,
+              upstream.headers.get('content-type'),
+            );
+            if (!canonicalType) {
+              try {
+                await upstream.body?.cancel();
+              } catch {
+                /* already closed */
+              }
               setHealth(cameraId, {
                 status: 'degraded',
                 sourceKind: 'upstream',
                 label: source?.provider || 'Configured source',
-                message: `Unexpected media type ${contentType || 'unknown'}`,
+                message: 'Unexpected media type',
               });
-            } else {
-              setHealth(cameraId, {
-                status: 'ok',
-                sourceKind: isVideoFeedType(feedType) ? 'live' : 'snapshot',
-                label: source?.provider || 'Configured source',
-                message: isVideoFeedType(feedType)
-                  ? 'Live stream connected'
-                  : 'Snapshot feed connected',
+              res.writeHead(502, {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-store',
               });
+              res.end(JSON.stringify({ error: 'Media proxy failed' }));
+              return;
             }
 
+            setHealth(cameraId, {
+              status: 'ok',
+              sourceKind: 'live',
+              label: source?.provider || 'Configured source',
+              message: 'Live stream connected',
+            });
             await proxyMediaResponse(res, upstream, {
-              sourceHeader: isVideoFeedType(feedType)
-                ? 'live-media'
-                : 'upstream-image',
+              sourceHeader: 'live-media',
+              contentType: canonicalType,
             });
             return;
           } catch (error) {
@@ -312,7 +480,7 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
               status: 'degraded',
               sourceKind: 'upstream',
               label: source?.provider || 'Configured source',
-              message: error?.message || 'Media fetch failed',
+              message: 'Media fetch failed',
             });
             res.writeHead(timedOut ? 504 : 502, {
               'Content-Type': 'application/json',
@@ -377,13 +545,15 @@ export function cctvProxy({ sourceRoot = process.cwd() } = {}) {
           return;
         }
 
-        const sv = await streetViewFallback({
-          lat,
-          lon,
-          heading,
-          fov,
-          pitch,
-        });
+        const sv = hasForwardingHeaders(req)
+          ? null
+          : await streetViewFallback({
+              lat,
+              lon,
+              heading,
+              fov,
+              pitch,
+            });
         if (sv?.ok) {
           setHealth(cameraId, {
             status: 'degraded',

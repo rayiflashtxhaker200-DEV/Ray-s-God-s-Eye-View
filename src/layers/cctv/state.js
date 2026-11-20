@@ -34,6 +34,8 @@ export function createState({ services }) {
 
   layerState._showProjection = true;
 
+  layerState._feedPaused = false;
+
   layerState._autoHop = false;
 
   // An explicit empty-space deselect keeps AUTO HOP configured but prevents its

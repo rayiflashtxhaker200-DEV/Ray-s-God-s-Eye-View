@@ -184,7 +184,11 @@ export function createCatalog({ state: layerState, services, parts, source }) {
             (source.url ? 'configured' : 'seed'),
         ).toLowerCase(),
         feedType,
-        feedConfigured: typeof source.url === 'string' && !!source.url.trim(),
+        feedConfigured:
+          (typeof source.url === 'string' && !!source.url.trim()) ||
+          !['seed', 'fallback'].includes(
+            String(source.sourceKind || source.kind || 'seed').toLowerCase(),
+          ),
         lat,
         lon,
         headingDeg,

@@ -17,57 +17,140 @@
     <div class="panel-glow"></div>
     <div class="cctv-panel-inner" data-rail-scroller>
       <div class="panel-header">
+        <span class="material-symbols-outlined cctv-header-icon" aria-hidden="true">videocam</span>
         <span class="panel-title" data-i18n>CCTV</span>
         <span class="panel-divider"></span>
+        <button id="cctv-wide-btn" type="button" class="cctv-icon-btn" aria-pressed="false" title="Wide theater panel" data-i18n-title data-i18n-aria-label aria-label="Wide theater panel">
+          <span class="material-symbols-outlined" aria-hidden="true">open_in_full</span>
+        </button>
         <button class="panel-collapse-btn" data-collapse-target="cctv-panel" title="Collapse panel" data-i18n-title>+</button>
       </div>
       <div class="cyber-panel-body" data-rail-scroller>
-      <div id="cctv-frame-wrap" class="cctv-frame-wrap">
-        <span class="cctv-frame-caption" aria-hidden="true" data-i18n>ACQUIRING FRAME</span>
-        <img id="cctv-frame" alt="CCTV feed frame" />
-        <canvas id="cctv-video" class="cctv-frame" hidden></canvas>
-      </div>
-      <div id="cctv-source-badge" class="gev-status-badge" role="status" aria-live="polite" data-i18n>SOURCE · UNKNOWN</div>
-      <div id="cctv-meta" data-i18n>Enable CCTV to load camera intersections</div>
-      <div class="cctv-controls">
-        <button id="cctv-enable-btn" class="scene-btn" data-i18n>CCTV OFF</button>
-        <button id="cctv-nearest-btn" type="button" class="gev-action-button scene-btn" data-i18n>NEAREST</button>
-      </div>
-      <div class="cctv-controls">
-        <button id="cctv-prev-btn" type="button" class="gev-action-button scene-btn" data-i18n>PREV</button>
-        <select class="gev-field" id="cctv-camera-select" aria-label="CCTV camera" data-i18n-aria-label></select>
-        <button id="cctv-next-btn" type="button" class="gev-action-button scene-btn" data-i18n>NEXT</button>
-      </div>
-      <div class="cctv-controls">
-        <button id="cctv-focus-btn" type="button" class="gev-action-button scene-btn" data-i18n>FOCUS</button>
-        <button id="cctv-coverage-btn" class="scene-btn" data-i18n>COVERAGE OFF</button>
-        <button id="cctv-auto-hop-btn" class="scene-btn" data-i18n>AUTO HOP OFF</button>
-      </div>
-      <div class="cctv-controls">
-        <button id="cctv-projection-btn" class="scene-btn" data-i18n>PROJECTION ON</button>
-        <span id="cctv-quality-chip" class="gev-status-badge gev-status-badge--box" data-i18n-runtime>CAL · --</span>
-      </div>
-      <div class="cctv-calibration-block">
-        <div class="cctv-calibration-header">
-          <div class="cctv-summary-label" data-i18n>CALIBRATION</div>
-          <button id="cctv-adjust-btn" class="scene-btn" title="Drag the camera in the world: rings rotate, arrows move, handles set range/FOV" data-i18n-title data-i18n>ADJUST</button>
+        <div id="cctv-frame-wrap" class="cctv-frame-wrap">
+          <div class="cctv-stage-hud">
+            <div class="cctv-stage-pill">
+              <span id="cctv-stage-live-dot" class="cctv-live-dot" aria-hidden="true" hidden></span>
+              <span id="cctv-stage-label" class="cctv-stage-label" data-i18n>STANDBY</span>
+            </div>
+            <div class="cctv-stage-tools">
+              <button id="cctv-fit-btn" type="button" class="cctv-stage-tool-btn" aria-pressed="false" title="Toggle fit or fill frame" data-i18n-title data-i18n>FIT</button>
+              <button id="cctv-zoom-out-btn" type="button" class="cctv-stage-tool-btn cctv-stage-tool-icon" title="Zoom out" aria-label="Zoom out" data-i18n-title data-i18n-aria-label disabled>
+                <span class="material-symbols-outlined" aria-hidden="true">remove</span>
+              </button>
+              <span id="cctv-zoom-badge" class="cctv-zoom-badge">1×</span>
+              <button id="cctv-zoom-in-btn" type="button" class="cctv-stage-tool-btn cctv-stage-tool-icon" title="Zoom in" aria-label="Zoom in" data-i18n-title data-i18n-aria-label>
+                <span class="material-symbols-outlined" aria-hidden="true">add</span>
+              </button>
+              <button id="cctv-pause-btn" type="button" class="cctv-stage-tool-btn cctv-stage-tool-icon" aria-pressed="false" title="Pause frame updates" aria-label="Pause frame updates" data-i18n-title data-i18n-aria-label disabled>
+                <span class="material-symbols-outlined" aria-hidden="true">pause</span>
+              </button>
+              <button id="cctv-refresh-btn" type="button" class="cctv-stage-tool-btn cctv-stage-tool-icon" title="Refresh frame now" aria-label="Refresh frame now" data-i18n-title data-i18n-aria-label>
+                <span class="material-symbols-outlined" aria-hidden="true">sync</span>
+              </button>
+              <button id="cctv-expand-btn" type="button" class="cctv-stage-tool-btn cctv-stage-tool-icon" aria-pressed="false" title="Fullscreen camera view (Esc to exit)" aria-label="Fullscreen camera view" data-i18n-title data-i18n-aria-label>
+                <span class="material-symbols-outlined" aria-hidden="true">open_in_full</span>
+              </button>
+            </div>
+          </div>
+          <div id="cctv-stage-viewport" class="cctv-stage-viewport">
+            <span class="cctv-frame-caption" aria-hidden="true" data-i18n>ACQUIRING FRAME</span>
+            <img id="cctv-frame" alt="CCTV feed frame" draggable="false" />
+            <canvas id="cctv-video" class="cctv-frame" hidden></canvas>
+            <div id="cctv-stage-empty" class="cctv-stage-empty">
+              <span class="material-symbols-outlined cctv-stage-empty-icon" aria-hidden="true">videocam</span>
+              <span id="cctv-stage-empty-text" class="cctv-stage-empty-text" data-i18n>Enable CCTV to inspect live feeds</span>
+              <button id="cctv-retry-btn" type="button" class="scene-btn cctv-retry-btn" hidden>
+                <span class="material-symbols-outlined" aria-hidden="true">sync</span>
+                <span data-i18n>RETRY</span>
+              </button>
+            </div>
+          </div>
+          <div class="cctv-lightbox-bar">
+            <span id="cctv-lb-meta" class="cctv-lb-meta"></span>
+            <div class="cctv-lb-actions">
+              <button id="cctv-lb-prev" type="button" class="scene-btn cctv-lb-btn" title="Previous camera" data-i18n-title>
+                <span class="material-symbols-outlined" aria-hidden="true">skip_previous</span>
+                <span data-i18n>PREV</span>
+              </button>
+              <button id="cctv-lb-next" type="button" class="scene-btn cctv-lb-btn" title="Next camera" data-i18n-title>
+                <span data-i18n>NEXT</span>
+                <span class="material-symbols-outlined" aria-hidden="true">skip_next</span>
+              </button>
+              <button id="cctv-lb-focus" type="button" class="scene-btn cctv-lb-btn" title="Fly globe to camera" data-i18n-title>
+                <span class="material-symbols-outlined" aria-hidden="true">location_on</span>
+                <span data-i18n>FOCUS</span>
+              </button>
+              <button id="cctv-lb-close" type="button" class="scene-btn cctv-lb-btn cctv-lb-close" title="Exit fullscreen" data-i18n-title>
+                <span class="material-symbols-outlined" aria-hidden="true">close_fullscreen</span>
+                <span data-i18n>EXIT</span>
+              </button>
+            </div>
+          </div>
         </div>
-        <div id="cctv-cal-readout" class="cctv-cal-readout" aria-label="Camera pose — click a value to type" data-i18n-aria-label>
-          <button class="cctv-cal-value" data-cal-field="heading" title="Heading (compass °) — click to type" data-i18n-title data-i18n-runtime>HDG --</button>
-          <button class="cctv-cal-value" data-cal-field="pitch" title="Pitch (° up/down) — click to type" data-i18n-title data-i18n-runtime>PITCH --</button>
-          <button class="cctv-cal-value" data-cal-field="fov" title="Horizontal FOV (°) — click to type" data-i18n-title data-i18n-runtime>FOV --</button>
-          <button class="cctv-cal-value" data-cal-field="range" title="Range / monitor-plane distance (m) — click to type" data-i18n-title data-i18n-runtime>RANGE --</button>
-          <button class="cctv-cal-value" data-cal-field="height" title="Mount height above ground (m) — click to type" data-i18n-title data-i18n-runtime>HGT --</button>
-          <button class="cctv-cal-value" data-cal-field="north" title="North offset from catalog position (m) — click to type" data-i18n-title>ΔN --</button>
-          <button class="cctv-cal-value" data-cal-field="east" title="East offset from catalog position (m) — click to type" data-i18n-title>ΔE --</button>
+
+        <div class="cctv-status-row">
+          <div id="cctv-source-badge" class="gev-status-badge" role="status" aria-live="polite" data-i18n>SOURCE · UNKNOWN</div>
+          <span id="cctv-count-chip" class="gev-status-badge gev-status-badge--box cctv-count-chip">0 / 0</span>
+          <span id="cctv-quality-chip" class="gev-status-badge gev-status-badge--box" data-i18n-runtime>CAL · --</span>
         </div>
-        <div class="cctv-controls cctv-calibration-actions">
-          <button id="cctv-calib-save-btn" type="button" class="gev-action-button scene-btn" data-i18n>SAVE CAL</button>
-          <button id="cctv-calib-reset-btn" type="button" class="gev-action-button scene-btn" data-i18n>RESET CAL</button>
+
+        <div id="cctv-meta" data-i18n>Enable CCTV to load camera intersections</div>
+
+        <div class="cctv-controls cctv-controls-primary">
+          <button id="cctv-enable-btn" class="scene-btn" data-i18n>CCTV OFF</button>
+          <button id="cctv-nearest-btn" type="button" class="gev-action-button scene-btn" data-i18n>NEAREST</button>
+          <button id="cctv-focus-btn" type="button" class="gev-action-button scene-btn" data-i18n>FOCUS</button>
+          <button id="cctv-wall-btn" type="button" class="scene-btn" aria-pressed="false" title="Toggle multi-camera preview wall" data-i18n-title data-i18n>WALL</button>
         </div>
-      </div>
-      <div class="cctv-summary-label" data-i18n>SCENE SUMMARY</div>
-      <div id="cctv-summary" data-i18n>Enable CCTV to start camera-linked intelligence summaries.</div>
+
+        <div class="cctv-controls">
+          <button id="cctv-prev-btn" type="button" class="gev-action-button scene-btn" title="Previous camera" data-i18n-title data-i18n>PREV</button>
+          <select class="gev-field" id="cctv-camera-select" aria-label="CCTV camera" data-i18n-aria-label></select>
+          <button id="cctv-next-btn" type="button" class="gev-action-button scene-btn" title="Next camera" data-i18n-title data-i18n>NEXT</button>
+        </div>
+
+        <div class="cctv-browse-block">
+          <div class="cctv-filter-row">
+            <span class="material-symbols-outlined cctv-filter-icon" aria-hidden="true">search</span>
+            <input id="cctv-filter-input" type="search" class="gev-field cctv-filter-input" placeholder="Filter by city, street or source…" aria-label="Filter cameras" data-i18n-placeholder data-i18n-aria-label />
+            <button id="cctv-filter-clear" type="button" class="cctv-icon-btn cctv-filter-clear" title="Clear filter" aria-label="Clear filter" data-i18n-title data-i18n-aria-label hidden>
+              <span class="material-symbols-outlined" aria-hidden="true">close</span>
+            </button>
+          </div>
+          <div id="cctv-wall-grid" class="cctv-wall-grid" hidden></div>
+        </div>
+
+        <div class="cctv-controls">
+          <button id="cctv-coverage-btn" class="scene-btn" data-i18n>COVERAGE OFF</button>
+          <button id="cctv-auto-hop-btn" class="scene-btn" data-i18n>AUTO HOP OFF</button>
+          <button id="cctv-projection-btn" class="scene-btn" data-i18n>PROJECTION ON</button>
+        </div>
+
+        <details id="cctv-calibration-details" class="cctv-calibration-block">
+          <summary class="cctv-calibration-header">
+            <span class="cctv-calibration-title">
+              <span class="material-symbols-outlined cctv-cal-icon" aria-hidden="true">tune</span>
+              <span class="cctv-summary-label" data-i18n>CALIBRATION</span>
+            </span>
+            <button id="cctv-adjust-btn" type="button" class="scene-btn" title="Drag the camera in the world: rings rotate, arrows move, handles set range/FOV" data-i18n-title data-i18n>ADJUST</button>
+          </summary>
+          <div id="cctv-cal-readout" class="cctv-cal-readout" aria-label="Camera pose — click a value to type" data-i18n-aria-label>
+            <button class="cctv-cal-value" data-cal-field="heading" title="Heading (compass °) — click to type" data-i18n-title data-i18n-runtime>HDG --</button>
+            <button class="cctv-cal-value" data-cal-field="pitch" title="Pitch (° up/down) — click to type" data-i18n-title data-i18n-runtime>PITCH --</button>
+            <button class="cctv-cal-value" data-cal-field="fov" title="Horizontal FOV (°) — click to type" data-i18n-title data-i18n-runtime>FOV --</button>
+            <button class="cctv-cal-value" data-cal-field="range" title="Range / monitor-plane distance (m) — click to type" data-i18n-title data-i18n-runtime>RANGE --</button>
+            <button class="cctv-cal-value" data-cal-field="height" title="Mount height above ground (m) — click to type" data-i18n-title data-i18n-runtime>HGT --</button>
+            <button class="cctv-cal-value" data-cal-field="north" title="North offset from catalog position (m) — click to type" data-i18n-title>ΔN --</button>
+            <button class="cctv-cal-value" data-cal-field="east" title="East offset from catalog position (m) — click to type" data-i18n-title>ΔE --</button>
+          </div>
+          <div class="cctv-controls cctv-calibration-actions">
+            <button id="cctv-calib-save-btn" type="button" class="gev-action-button scene-btn" data-i18n>SAVE CAL</button>
+            <button id="cctv-calib-reset-btn" type="button" class="gev-action-button scene-btn" data-i18n>RESET CAL</button>
+          </div>
+        </details>
+
+        <div class="cctv-summary-label" data-i18n>SCENE SUMMARY</div>
+        <div id="cctv-summary" data-i18n>Enable CCTV to start camera-linked intelligence summaries.</div>
       </div>
     </div>
   </div>

@@ -71,18 +71,38 @@ function forwardedProtocol(req) {
  * @param {import('node:http').ServerResponse} res
  * @returns {boolean} True when a 403 was sent.
  */
+function forwardedHost(req) {
+  const raw = String(req.headers?.['x-forwarded-host'] || '').trim();
+  if (!raw || raw.includes(',') || /[\s/?#@\\]/.test(raw)) return '';
+  return raw;
+}
+
 export function admitSameSiteKeyless(req, res) {
-  const verdict = admitSameSiteRequest({
+  const protocol = forwardedProtocol(req);
+  const directVerdict = admitSameSiteRequest({
     hostHeader: req.headers?.host,
-    protocol: forwardedProtocol(req),
+    protocol,
     origin: req.headers?.origin,
     secFetchSite: req.headers?.['sec-fetch-site'],
     proxyHeaders: {},
   });
-  if (verdict.ok) return false;
-  res.statusCode = verdict.status;
+  if (directVerdict.ok) return false;
+
+  const proxiedHost = forwardedHost(req);
+  if (proxiedHost && req.headers?.origin) {
+    const proxiedVerdict = admitSameSiteRequest({
+      hostHeader: proxiedHost,
+      protocol,
+      origin: req.headers?.origin,
+      secFetchSite: req.headers?.['sec-fetch-site'],
+      proxyHeaders: {},
+    });
+    if (proxiedVerdict.ok) return false;
+  }
+
+  res.statusCode = directVerdict.status;
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Cache-Control', 'no-store');
-  res.end(JSON.stringify({ error: verdict.error }));
+  res.end(JSON.stringify({ error: directVerdict.error }));
   return true;
 }

@@ -1,4 +1,4 @@
-import { parsers } from 'prettier/plugins/babel.mjs';
+import { parse as babelParse } from '@babel/parser';
 
 const browserGlobals = new Set([
   'window',
@@ -70,7 +70,12 @@ export function analyzeModule(source) {
       else if (value && typeof value === 'object') walk(value, node, key);
     }
   }
-  walk(parsers.babel.parse(source));
+  walk(
+    babelParse(source, {
+      sourceType: 'unambiguous',
+      plugins: ['importAttributes'],
+    }),
+  );
   return { imports, browser: [...browser] };
 }
 

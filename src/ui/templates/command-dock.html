@@ -56,6 +56,35 @@
         </div>
         <div id="map-stack-chips" class="map-stack-chip-row" role="group" aria-label="Map source" data-i18n-aria-label></div>
       </section>
+      <section class="visual-3d-section" aria-labelledby="visual-3d-label">
+        <div class="visual-3d-heading">
+          <span data-i18n id="visual-3d-label">3D VIEW</span>
+        </div>
+        <div class="visual-3d-row" role="group" aria-label="3D view options" data-i18n-aria-label>
+          <button
+            type="button"
+            id="globe3d-toggle"
+            class="map-stack-chip visual-3d-btn active"
+            aria-pressed="true"
+            title="Toggle 3D globe mode"
+            data-i18n-title
+          >
+            <span class="material-symbols-outlined visual-3d-icon" aria-hidden="true">public</span>
+            <span class="visual-3d-label" data-i18n>3D</span>
+          </button>
+          <button
+            type="button"
+            id="buildings3d-toggle"
+            class="map-stack-chip visual-3d-btn"
+            aria-pressed="false"
+            title="Toggle 3D buildings"
+            data-i18n-title
+          >
+            <span class="material-symbols-outlined visual-3d-icon" aria-hidden="true">apartment</span>
+            <span class="visual-3d-label" data-i18n>3D BUILDINGS</span>
+          </button>
+        </div>
+      </section>
       </div>
       <div id="style-mini-status" class="panel-mini-status" aria-live="polite">
         <span class="panel-mini-label" data-i18n>Style</span>

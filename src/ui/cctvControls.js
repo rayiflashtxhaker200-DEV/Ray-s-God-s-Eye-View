@@ -2,6 +2,7 @@ import {
   EMPTY_CCTV_FRAME,
   _clearCctvFrame,
   _queueCctvFrame,
+  _refreshActiveCctvFrame,
   _setCctvFrame,
   _settleCctvFrame,
   _syncCctvSourceBadge,
@@ -18,7 +19,12 @@ import {
   _typeCctvSummary,
   _updateCctvSyncChip,
 } from './cctvPresentation.js';
-import { _initCctvPanel } from './cctvBindings.js';
+import {
+  _closeCctvLightbox,
+  _initCctvPanel,
+  _resetCctvZoom,
+} from './cctvBindings.js';
+import { mountCctvDomSync } from './cctvDomSync.js';
 import { useCctvStore } from './stores/cctv.js';
 import { useStatusStore } from './stores/status.js';
 import { applicationPinia } from './vueRuntime.js';
@@ -57,8 +63,14 @@ export class CctvControls {
     this._cctvFrameRequestToken = 0;
     this._cctvFramePreloader = null;
     this._frame = EMPTY_CCTV_FRAME;
+    this._feedPaused = false;
     this._calibrationEdit = null;
     this._actionGeneration = 0;
+    this._domSync = mountCctvDomSync({
+      elements,
+      store: this.store,
+      statusStore: this.statusStore,
+    });
     this._initCctvPanel();
     // The panel and the grid chip hold translated text; show it again in a
     // new locale, from a fresh layer state when there is one (its summary is
@@ -142,6 +154,47 @@ export class CctvControls {
   _initCctvPanel(...args) {
     return _initCctvPanel.call(this, ...args);
   }
+  _refreshActiveCctvFrame(...args) {
+    return _refreshActiveCctvFrame.call(this, ...args);
+  }
+  _resetCctvZoom(...args) {
+    return _resetCctvZoom.call(this, ...args);
+  }
+  _closeCctvLightbox(...args) {
+    return _closeCctvLightbox.call(this, ...args);
+  }
+  isLightboxOpen() {
+    return Boolean(
+      this._popoverOpen ||
+        this._classLightboxOpen ||
+        (typeof document !== 'undefined' &&
+          this._cctvFrameWrap &&
+          document.fullscreenElement === this._cctvFrameWrap),
+    );
+  }
+  setFeedPaused(paused) {
+    if (this.destroyed) return false;
+    const enabled = !!this._cctvState?.enabled && !!this.actions?.isEnabled?.();
+    const activeId = this._cctvState?.activeCameraId;
+    if (!enabled || !activeId) return false;
+    const next = typeof paused === 'boolean' ? paused : !this._feedPaused;
+    this._feedPaused = next;
+    this._cctvVideoSurface?.setPaused?.(next);
+    if (next) {
+      this.cctv?.getActiveVideoElement?.()?.pause?.();
+    } else {
+      this.cctv?.getActiveVideoElement?.()?.play?.().catch?.(() => {});
+    }
+    this.actions?.setParams?.({ feedPaused: next }, { origin: 'user' });
+    this._renderCctvState(this._cctvState);
+    if (!next) {
+      const activeCam = this._cctvState?.activeCamera;
+      if (activeCam && !activeCam.isVideo) {
+        this._refreshActiveCctvFrame();
+      }
+    }
+    return next;
+  }
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
@@ -159,5 +212,7 @@ export class CctvControls {
     this._cctvSummaryTypingTimer = null;
     this._cctvChipHideTimer = null;
     this._publishCctvChip({ visible: false, stopped: true });
+    this._domSync?.destroy();
+    this._domSync = null;
   }
 }

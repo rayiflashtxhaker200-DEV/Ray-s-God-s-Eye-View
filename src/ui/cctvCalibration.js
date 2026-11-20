@@ -119,6 +119,7 @@ export function _beginCctvCalValueEdit(chip) {
   const basePose = { ...activeCamera.basePose };
 
   let finished = false;
+  let restoredLabel = null;
   /**
    * End the edit: commit converts the typed value to a calibration offset
    * against the pose captured when it began; anything else just closes it.
@@ -128,6 +129,9 @@ export function _beginCctvCalValueEdit(chip) {
     finished = true;
     this._calibrationEdit = null;
     this.store.setCalEdit(null);
+    if (restoredLabel !== null && chip && 'textContent' in chip) {
+      chip.textContent = restoredLabel;
+    }
     const typed = parseFloat(typedText);
     if (
       commit &&
@@ -149,16 +153,47 @@ export function _beginCctvCalValueEdit(chip) {
     }
   };
   this._calibrationEdit = finish;
-  // The readout renders a number input in this chip; Enter or blur commits
-  // and Escape cancels through `finish`.
-  this.store.setCalEdit({
+  const editSpec = {
     field: fieldId,
     label: `${t(field.label)} `,
     ariaLabel: t(field.label),
     step: field.decimals > 0 ? '0.1' : '1',
     value: Number(field.get(activeCamera)).toFixed(field.decimals),
     finish,
-  });
+  };
+  // The readout renders a number input in this chip; Enter or blur commits
+  // and Escape cancels through `finish`.
+  this.store.setCalEdit(editSpec);
+
+  if (
+    typeof document !== 'undefined' &&
+    typeof chip.replaceChildren === 'function' &&
+    !chip.querySelector?.('input')
+  ) {
+    restoredLabel = calValueText(field, Number(field.get(activeCamera)));
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = editSpec.label;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'gev-field gev-field--inline cctv-cal-input';
+    input.step = editSpec.step;
+    input.value = editSpec.value;
+    input.setAttribute('aria-label', editSpec.ariaLabel);
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        finish(true, input.value);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        finish(false);
+      }
+    });
+    input.addEventListener('blur', () => finish(true, input.value));
+    chip.replaceChildren(labelSpan, input);
+    input.focus();
+    input.select();
+  }
 }
 
 /**

@@ -675,8 +675,48 @@ html:not([lang='en']) .pp-slider-row > .pp-slider-mini-label {
   outline: none;
 }
 
-#command-dock #control-panel.collapsed .map-source-section {
+#command-dock #control-panel.collapsed .map-source-section,
+#command-dock #control-panel.collapsed .visual-3d-section {
   display: none;
+}
+
+.visual-3d-section {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(123, 189, 211, 0.18);
+}
+
+.visual-3d-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: rgba(190, 221, 230, 0.62);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 1.35px;
+}
+
+.visual-3d-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.visual-3d-btn {
+  align-items: center;
+  min-height: 26px;
+}
+
+.visual-3d-btn .visual-3d-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.visual-3d-btn.is-loading {
+  opacity: 0.72;
+  cursor: progress;
 }
 
 @media (max-width: 620px) {

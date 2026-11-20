@@ -5,16 +5,18 @@ export function createCctvVideoSurface(
   {
     requestFrame = requestAnimationFrame,
     cancelFrame = cancelAnimationFrame,
+    paused: initialPaused = false,
   } = {},
 ) {
   const ctx = canvas.getContext('2d');
   let handle = 0;
   let stopped = false;
+  let paused = !!initialPaused;
   let previous = null;
   let previousTime = -1;
   let paintedAt = -Infinity;
   const paint = (now) => {
-    if (stopped) return;
+    if (stopped || paused) return;
     const video = getVideo();
     if (video !== previous) {
       ctx?.clearRect(0, 0, canvas.width, canvas.height);
@@ -48,11 +50,27 @@ export function createCctvVideoSurface(
     }
     handle = requestFrame(paint);
   };
-  handle = requestFrame(paint);
+  if (!paused) {
+    handle = requestFrame(paint);
+  }
   return {
+    setPaused(next) {
+      const target = !!next;
+      if (stopped || paused === target) return;
+      paused = target;
+      if (paused) {
+        if (handle) cancelFrame(handle);
+        handle = 0;
+      } else {
+        previousTime = -1;
+        paintedAt = -Infinity;
+        handle = requestFrame(paint);
+      }
+    },
     stop() {
       stopped = true;
-      cancelFrame(handle);
+      if (handle) cancelFrame(handle);
+      handle = 0;
       ctx?.clearRect(0, 0, canvas.width, canvas.height);
     },
   };

@@ -217,6 +217,7 @@ export function createFrames({ state: layerState, services, parts, source }) {
   function refreshProjectionImage(record, force = false) {
     const runtime = record?.projection;
     if (!runtime || runtime.mode !== 'image' || !runtime.image) return;
+    if (layerState._feedPaused && !force) return;
     // Hidden-state gate (perf wave 2): no new frame fetch/decode for a canvas
     // nobody can see. The refresh interval re-fills naturally on return.
     if (typeof document !== 'undefined' && document.hidden && !force) return;
@@ -278,6 +279,7 @@ export function createFrames({ state: layerState, services, parts, source }) {
   function drawProjectionFrame(record) {
     const runtime = record?.projection;
     if (!runtime || !runtime.ctx) return;
+    if (layerState._feedPaused && runtime.drawnImageStamp !== -1) return;
 
     const health = layerState._healthById.get(record.camera.id) || null;
 

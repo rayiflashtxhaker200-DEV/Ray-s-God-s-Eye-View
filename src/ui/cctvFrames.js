@@ -88,10 +88,67 @@ export const EMPTY_CCTV_FRAME = Object.freeze({
   wrapLoading: false,
 });
 
-/** Apply a change to the preview and publish it to the panel view. */
+/** Apply a change to the preview and publish it to the panel view and DOM. */
 export function _setCctvFrame(change) {
   this._frame = { ...this._frame, ...change };
   this.store.setFrame(this._frame);
+  _syncCctvFrameDom.call(this);
+}
+
+export function _syncCctvFrameDom() {
+  const frame = this._frame || EMPTY_CCTV_FRAME;
+  const state = this._cctvState;
+  const enabled = !!state?.enabled && !!this.actions?.isEnabled?.();
+  const activeCam = state?.activeCamera || null;
+  const liveIntent = enabled && !!activeCam?.isVideo;
+
+  const img = this._cctvFrame;
+  if (img) {
+    if (frame.src) {
+      if (img.src !== frame.src) img.src = frame.src;
+      img.classList?.add('active');
+    } else {
+      img.removeAttribute?.('src');
+      img.classList?.remove('active');
+    }
+    if (img.dataset) {
+      img.dataset.cameraId = frame.cameraId || '';
+      img.dataset.loading = frame.loading ? 'true' : 'false';
+      img.dataset.error = frame.error ? 'true' : 'false';
+    }
+    if ('hidden' in img) {
+      img.hidden = liveIntent || !frame.hasFrame;
+    }
+  }
+
+  const wrap = this._cctvFrameWrap;
+  if (wrap?.classList) {
+    wrap.classList.toggle('loading', !!frame.wrapLoading);
+    wrap.classList.toggle('has-frame', !!frame.hasFrame);
+    wrap.classList.toggle('has-error', !!frame.error);
+  }
+
+  const emptyEl = this._cctvStageEmpty;
+  const emptyText = this._cctvStageEmptyText;
+  const retryBtn = this._cctvRetryBtn;
+  if (emptyEl) {
+    const showEmpty = !liveIntent && !frame.hasFrame && !frame.wrapLoading;
+    emptyEl.hidden = !showEmpty;
+    if (showEmpty && emptyText) {
+      if (!enabled) {
+        emptyText.textContent = t('Enable CCTV to inspect live feeds');
+      } else if (!activeCam) {
+        emptyText.textContent = t('Select a camera to inspect live feeds');
+      } else if (frame.error) {
+        emptyText.textContent = t('Feed offline or unreachable');
+      } else {
+        emptyText.textContent = t('ACQUIRING FRAME');
+      }
+    }
+    if (retryBtn) {
+      retryBtn.hidden = !(showEmpty && enabled && activeCam && frame.error);
+    }
+  }
 }
 
 export function _clearCctvFrame() {
@@ -162,6 +219,29 @@ export function _settleCctvFrame(token, src, ok) {
   );
 }
 
+/** Force an immediate refresh of the currently selected camera feed. */
+export function _refreshActiveCctvFrame() {
+  if (this.destroyed) return;
+  const enabled = !!this._cctvState?.enabled && !!this.actions?.isEnabled?.();
+  const activeCamera = this._cctvState?.activeCamera || null;
+  if (!enabled || !activeCamera) return;
+  if (activeCamera.isVideo) {
+    if (this._feedPaused) this.setFeedPaused?.(false);
+    this._cctvVideoSurface?.stop();
+    this._cctvVideoSurface = null;
+    this._renderCctvState(this._cctvState);
+    return;
+  }
+  const baseUrl = activeCamera.frameUrl;
+  if (!baseUrl) return;
+  const cleaned = baseUrl.replace(/([?&])_cb=\d+(&?)/, (_, prefix, tail) =>
+    tail ? prefix : '',
+  );
+  const sep = cleaned.includes('?') ? '&' : '?';
+  this._queueCctvFrame(`${cleaned}${sep}_cb=${Date.now()}`, activeCamera.id, false);
+  this._syncCctvSourceBadge(activeCamera, true);
+}
+
 /** The source badge's label and frame state for the camera and preview. */
 export function presentCctvSourceBadge(activeCamera, enabled, frame) {
   if (!enabled || !activeCamera)
@@ -178,7 +258,12 @@ export function presentCctvSourceBadge(activeCamera, enabled, frame) {
 }
 
 export function _syncCctvSourceBadge(activeCamera, enabled) {
-  this.store.setSourceBadge(
-    presentCctvSourceBadge(activeCamera, enabled, this._frame),
-  );
+  const badge = presentCctvSourceBadge(activeCamera, enabled, this._frame);
+  this.store.setSourceBadge(badge);
+  if (this._cctvSourceBadge) {
+    this._cctvSourceBadge.textContent = badge.label;
+    if (this._cctvSourceBadge.dataset) {
+      this._cctvSourceBadge.dataset.frameState = badge.state;
+    }
+  }
 }

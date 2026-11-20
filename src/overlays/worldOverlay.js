@@ -538,7 +538,6 @@ export function normalizeOverlayEntry(sourceId, entry) {
     leaderOffsetPx: Number.isFinite(Number(entry.leaderOffsetPx))
       ? Math.max(0, Number(entry.leaderOffsetPx))
       : 0,
-    leaderStyle: entry.leaderStyle === 'elbow' ? 'elbow' : 'straight',
     leaderAnimationMs: Number.isFinite(Number(entry.leaderAnimationMs))
       ? Math.max(0, Number(entry.leaderAnimationMs))
       : 0,

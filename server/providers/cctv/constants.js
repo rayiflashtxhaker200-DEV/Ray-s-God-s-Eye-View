@@ -236,6 +236,30 @@ export const CALGARY_DOWNTOWN = { lat: 51.0461, lon: -114.0626 };
  * body cannot be buffered without limit. */
 export const CALGARY_MAX_CATALOG_BYTES = 4 * 1024 * 1024;
 
+/** Statens vegvesen DATEX 3.1 OGC WFS traffic camera catalog (Norway). */
+export const DEFAULT_VEGVESEN_CCTV_URL =
+  'https://ogckart-sn1.atlas.vegvesen.no/datex_3_1/wfs?service=WFS&version=1.0.0&request=GetFeature&typeName=datex_3_1%3ACctvSimple&outputFormat=application%2Fjson&srsName=EPSG:4326';
+export const VEGVESEN_IMAGE_ORIGIN = 'https://kamera.atlas.vegvesen.no/';
+export const VEGVESEN_VIDEO_ORIGIN = 'https://kamera.vegvesen.no/';
+export const DEFAULT_VEGVESEN_MAX_SOURCES = 500;
+export const VEGVESEN_ANCHORS = [
+  { lat: 59.9139, lon: 10.7522 }, // Oslo
+  { lat: 60.3913, lon: 5.3221 }, // Bergen
+  { lat: 63.4305, lon: 10.3951 }, // Trondheim
+  { lat: 58.97, lon: 5.7331 }, // Stavanger
+  { lat: 69.6492, lon: 18.9553 }, // Tromsø
+];
+
+/** Kartverket Hoydedata v1 terrain elevation point-batch endpoint. */
+export const KARTVERKET_HEIGHT_URL = 'https://ws.geonorge.no/hoydedata/v1/punkt';
+export const KARTVERKET_MAX_POINTS = 20;
+export const KARTVERKET_CONCURRENCY = 8;
+export const KARTVERKET_CATALOG_WAIT_MS = 4000;
+export const KARTVERKET_FAILURE_BACKOFF_MS = 20 * 60 * 1000;
+export const KARTVERKET_MAX_RESPONSE_BYTES = 64 * 1024;
+export const KARTVERKET_NULL_TTL_MS = 24 * 60 * 60 * 1000;
+export const KARTVERKET_USER_AGENT = 'gods-eye-view-cctv-proxy/1.0';
+
 /** Camera CATALOGS change rarely; 15 min keeps multi-megabyte upstream list refetches (Austin rows.json + 4 Caltrans districts + TfL + Ontario 511) infrequent. Frames are fetched per-request and are unaffected. */
 export const CCTV_SOURCE_CACHE_MS = 15 * 60 * 1000;
 /** Per-provider catalog-fetch timeout. Bounds the worst-case refresh so one

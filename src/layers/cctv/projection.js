@@ -1,4 +1,5 @@
 import * as Cesium from 'cesium';
+import Hls from 'hls.js';
 import {
   CCTV_PROJECTION_OVERLAY_SOURCE_ID,
   CCTV_PROJECTION_OVERLAY_SOURCE_OPTIONS,
@@ -14,6 +15,79 @@ export function createProjection({
   source,
 }) {
   const { holdContinuousRender, releaseContinuousRender } = services.render;
+  const viewerLeaseId =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `viewer-${Math.random().toString(36).slice(2)}`;
+
+  function hlsMediaUrlFor(camera) {
+    const baseUrl = parts.frames.mediaUrlFor(camera);
+    const sep = baseUrl.includes('?') ? '&' : '?';
+    return `${baseUrl}${sep}lease=${encodeURIComponent(viewerLeaseId)}`;
+  }
+
+  function releaseHlsFeed(runtime) {
+    if (!runtime) return;
+    if (runtime.hls) {
+      try {
+        runtime.hls.destroy();
+      } catch {
+        /* already destroyed */
+      }
+      runtime.hls = null;
+    }
+    if (runtime.leaseUrl && typeof fetch === 'function') {
+      const releaseUrl = runtime.leaseUrl;
+      runtime.leaseUrl = null;
+      fetch(releaseUrl, { method: 'DELETE', keepalive: true }).catch(() => {});
+    }
+  }
+
+  function attachVideoSource(record, runtime) {
+    const video = runtime?.video;
+    if (!video || !record?.camera) return;
+    if (runtime.feedType === 'hls') {
+      if (runtime.hls) return;
+      const hlsUrl = hlsMediaUrlFor(record.camera);
+      runtime.leaseUrl = hlsUrl;
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: false,
+          backBufferLength: 10,
+        });
+        runtime.hls = hls;
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (
+            record.camera.id === layerState._activeCameraId &&
+            layerState._enabled &&
+            !layerState._feedPaused
+          ) {
+            video.play().catch(() => {});
+          }
+        });
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data?.fatal) return;
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hls.startLoad();
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            hls.recoverMediaError();
+          } else {
+            releaseHlsFeed(runtime);
+          }
+        });
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(video);
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = hlsUrl;
+      }
+      return;
+    }
+    const nextUrl = parts.frames.mediaUrlFor(record.camera);
+    if (video.getAttribute?.('src') !== nextUrl) {
+      video.src = nextUrl;
+    }
+  }
 
   /**
    * Build the protected label associated with one active monitor plane.
@@ -179,10 +253,13 @@ export function createProjection({
     const mode = parts.model.isVideoFeedType(feedType) ? 'video' : 'image';
     const runtime = {
       mode,
+      feedType,
       canvas,
       ctx,
       image: null,
       video: null,
+      hls: null,
+      leaseUrl: null,
       planeEntity: null,
       cameraId: String(record.camera.id),
       labelPosition: new Cesium.Cartesian3(),
@@ -214,16 +291,22 @@ export function createProjection({
     if (mode === 'video') {
       const video = document.createElement('video');
       video.muted = true;
-      video.loop = true;
+      video.loop = feedType !== 'hls';
       video.autoplay = true;
       video.playsInline = true;
       video.crossOrigin = 'anonymous';
       video.preload = 'auto';
-      video.src = parts.frames.mediaUrlFor(record.camera);
       video.addEventListener('canplay', () => {
-        video.play().catch(() => {});
+        if (
+          record.camera.id === layerState._activeCameraId &&
+          layerState._enabled &&
+          !layerState._feedPaused
+        ) {
+          video.play().catch(() => {});
+        }
       });
       runtime.video = video;
+      attachVideoSource(record, runtime);
     } else {
       const img = new Image();
       img.decoding = 'async';
@@ -288,6 +371,7 @@ export function createProjection({
 
   function destroyProjectionRuntime(runtime) {
     if (!runtime) return;
+    releaseHlsFeed(runtime);
     if (runtime.video) {
       runtime.video.pause();
       runtime.video.removeAttribute('src');
@@ -324,10 +408,10 @@ export function createProjection({
       const active = parts.selection.getActiveRecord();
       if (layerState._enabled && layerState._showProjection && active) {
         ensureProjectionRuntime(active);
-        if (active.projection?.video) {
+        if (active.projection?.video && !layerState._feedPaused) {
           active.projection.video.play().catch(() => {});
         }
-        if (active.projection) {
+        if (active.projection && !layerState._feedPaused) {
           parts.frames.drawProjectionFrame(active);
           parts.frames.refreshProjectionTextures(active);
         }
@@ -357,15 +441,22 @@ export function createProjection({
 
   function pauseInactiveProjectionFeeds(activeId) {
     for (const record of layerState._records) {
-      if (!record.projection?.video) continue;
+      const runtime = record.projection;
+      if (!runtime?.video) continue;
       if (
         record.camera.id === activeId &&
         layerState._enabled &&
-        layerState._showProjection
+        !layerState._feedPaused
       ) {
-        record.projection.video.play().catch(() => {});
+        if (runtime.feedType === 'hls' && !runtime.hls) {
+          attachVideoSource(record, runtime);
+        }
+        runtime.video.play().catch(() => {});
       } else {
-        record.projection.video.pause();
+        runtime.video.pause();
+        if (runtime.feedType === 'hls' && record.camera.id !== activeId) {
+          releaseHlsFeed(runtime);
+        }
       }
     }
   }

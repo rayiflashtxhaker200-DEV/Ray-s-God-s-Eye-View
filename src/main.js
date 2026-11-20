@@ -36,10 +36,27 @@ if (isMobileRemote()) {
 
   // The Vite boundary exposes only undefined, null, or a validated URL.
   const photonSetting = import.meta.env.PHOTON_URL;
+  let cesiumToken = String(import.meta.env.CESIUM_ION_TOKEN || '').trim();
+  if (!cesiumToken && typeof globalThis.fetch === 'function') {
+    try {
+      const cfgResp = await globalThis.fetch('/api/client-config', {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(1500),
+      });
+      if (cfgResp.ok) {
+        const cfg = await cfgResp.json();
+        if (typeof cfg?.cesiumToken === 'string' && cfg.cesiumToken.trim()) {
+          cesiumToken = cfg.cesiumToken.trim();
+        }
+      }
+    } catch {
+      /* ignore runtime client-config fallback errors */
+    }
+  }
 
   application = createStandaloneApplication({
     googleApiKey: import.meta.env.GOOGLE_MAPS_API_KEY,
-    cesiumToken: import.meta.env.CESIUM_ION_TOKEN,
+    cesiumToken,
     geospatial:
       photonSetting === undefined
         ? {}

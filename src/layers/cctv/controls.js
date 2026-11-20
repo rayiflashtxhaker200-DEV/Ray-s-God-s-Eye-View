@@ -59,6 +59,22 @@ export function createControls({ state: layerState, services, parts, source }) {
           parts.projection.startProjectionLoop();
         }
       }
+      if (typeof params.feedPaused === 'boolean') {
+        layerState._feedPaused = params.feedPaused;
+        const active = parts.selection.getActiveRecord();
+        if (active?.projection) {
+          if (layerState._feedPaused) {
+            active.projection.video?.pause?.();
+          } else {
+            if (active.projection.video && layerState._enabled) {
+              active.projection.video.play?.().catch(() => {});
+            } else if (layerState._enabled) {
+              parts.frames.refreshProjectionImage(active, true);
+            }
+            parts.projection.startProjectionLoop();
+          }
+        }
+      }
       if (typeof params.autoHop === 'boolean') {
         layerState._autoHop = params.autoHop;
         if (params.autoHop) layerState._autoHopSuspended = false;
@@ -180,6 +196,7 @@ export function createControls({ state: layerState, services, parts, source }) {
         showCoverage: layerState._coverageMode !== 'off',
         coverageMode: layerState._coverageMode,
         showProjection: layerState._showProjection,
+        feedPaused: !!layerState._feedPaused,
         calibrationMode: layerState._calibrationMode,
         autoHop: layerState._autoHop,
         autoHopSec: layerState._autoHopSec,
@@ -271,6 +288,15 @@ export function createControls({ state: layerState, services, parts, source }) {
      */
     getUIState() {
       return parts.presentation.uiState();
+    },
+
+    /**
+     * Returns the active camera's underlying <video> element when a live video
+     * feed is selected, or null otherwise.
+     * @returns {HTMLVideoElement|null}
+     */
+    getActiveVideoElement() {
+      return parts.selection.getActiveRecord()?.projection?.video || null;
     },
 
     /**

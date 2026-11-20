@@ -1,6 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createImagerySplit } from './imagerySplit.js';
+import { createImagerySplit, globeSplitTarget } from './imagerySplit.js';
+
+test('globe split target proxies the divider value through the globe port', () => {
+  const globe = { splitPosition: 0.37 };
+  const target = globeSplitTarget(globe);
+
+  assert.notEqual(target, globe);
+  assert.equal(target.splitPosition, 0.37);
+  target.splitPosition = 0.62;
+  assert.equal(globe.splitPosition, 0.62);
+  assert.equal(globeSplitTarget(null), null);
+});
 
 class FakeElement {
   constructor(tagName) {

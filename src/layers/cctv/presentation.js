@@ -68,6 +68,7 @@ export function createPresentation({
     const refreshMs = isActive
       ? ACTIVE_FRAME_REFRESH_MS
       : IDLE_FRAME_REFRESH_MS;
+    const normalizedFeedType = parts.model.normalizeFeedType(camera.feedType);
     return {
       id: camera.id,
       name: camera.name,
@@ -83,6 +84,7 @@ export function createPresentation({
       mountHeightM: camera.mountHeightM,
       active: isActive,
       feedType: camera.feedType,
+      isVideo: parts.model.isVideoFeedType(normalizedFeedType),
       sourceKind:
         health?.sourceKind ||
         camera.sourceKind ||
@@ -138,6 +140,7 @@ export function createPresentation({
       showCoverage: layerState._coverageMode !== 'off',
       coverageMode: layerState._coverageMode,
       showProjection: layerState._showProjection,
+      feedPaused: !!layerState._feedPaused,
       calibrationMode: layerState._calibrationMode,
       autoHop: layerState._autoHop,
       autoHopSuspended: layerState._autoHopSuspended,

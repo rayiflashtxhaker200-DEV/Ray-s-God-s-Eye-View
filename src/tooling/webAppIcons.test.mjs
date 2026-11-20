@@ -4,9 +4,23 @@ import { readFileSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import sharp from 'sharp';
 import { build } from 'vite';
 import { makeFixtureRoot } from './fixtureRoot.mjs';
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function readPngMetadata(filePath) {
+  const buf = readFileSync(filePath);
+  const isPng =
+    buf.length >= 24 &&
+    buf.subarray(0, 8).equals(PNG_MAGIC) &&
+    buf.subarray(12, 16).toString('ascii') === 'IHDR';
+  return {
+    format: isPng ? 'png' : 'unknown',
+    width: isPng ? buf.readUInt32BE(16) : 0,
+    height: isPng ? buf.readUInt32BE(20) : 0,
+  };
+}
 
 const REPO_ROOT = path.resolve(
   fileURLToPath(new URL('.', import.meta.url)),
@@ -75,7 +89,7 @@ test('the manifest declares a standalone installable app', () => {
 test('every declared icon is a square PNG at its declared size', async () => {
   const manifest = JSON.parse(readFileSync(publicFile(manifestHref), 'utf8'));
   for (const icon of manifest.icons) {
-    const meta = await sharp(manifestFile(icon.src)).metadata();
+    const meta = readPngMetadata(manifestFile(icon.src));
     const [width, height] = icon.sizes.split('x').map(Number);
     assert.equal(meta.format, 'png', `${icon.src} is not a PNG`);
     // A size the manifest overstates is worse than a missing one: the platform

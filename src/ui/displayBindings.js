@@ -125,6 +125,8 @@ export class DisplayBindings {
         celestialButton: this._celestialBtn,
         modelsButton: this._models3dBtn,
         modelModeButtons: this._models3dBtn ? this._models3dModeBtns : [],
+        globe3dButton: this._globe3dBtn,
+        buildings3dButton: this._buildings3dBtn,
       },
       actions: {
         setStyle: (style) => this.setStyle(style, { userInitiated: true }),
@@ -220,6 +222,8 @@ export class DisplayBindings {
           this._syncModels3dModeRow();
         },
         setModelsMode: (mode) => this._setModels3dMode(mode),
+        toggleGlobe3d: () => this.toggleGlobe3d?.(),
+        toggleBuildings3d: () => this.toggleBuildings3d?.(),
       },
     });
   }

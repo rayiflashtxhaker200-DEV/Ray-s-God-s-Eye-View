@@ -151,6 +151,22 @@ export function createApplicationViewer({ container, creditContainer }) {
     viewer.scene.skyAtmosphere.atmosphereLightIntensity = 18;
     viewer.scene.skyAtmosphere.saturationShift = -0.12;
     viewer.scene.skyAtmosphere.brightnessShift = -0.08;
+    if (typeof viewer.canvas?.addEventListener === 'function') {
+      viewer.canvas.addEventListener(
+        'webglcontextlost',
+        (event) => {
+          event.preventDefault();
+        },
+        false,
+      );
+      viewer.canvas.addEventListener(
+        'webglcontextrestored',
+        () => {
+          if (!viewer.isDestroyed()) viewer.scene.requestRender();
+        },
+        false,
+      );
+    }
     return viewer;
   } catch (error) {
     viewer.destroy();

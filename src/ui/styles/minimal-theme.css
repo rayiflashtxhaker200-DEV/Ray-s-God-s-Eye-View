@@ -949,6 +949,12 @@
   gap: 8px;
 }
 
+.rey-perf-grid .rey-btn.is-active {
+  background: rgba(0, 116, 77, 0.34);
+  border-color: rgba(24, 184, 130, 0.72);
+  color: #5ce0af;
+}
+
 .rey-inline-feedback {
   font-size: 11.5px;
   line-height: 1.4;

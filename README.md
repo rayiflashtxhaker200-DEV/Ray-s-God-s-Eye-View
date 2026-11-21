@@ -16,21 +16,41 @@ _Basado en el cliente open-source [God's Eye View](https://github.com/bilawalsid
 
 ## ✨ Novedades de Ray's Eye View
 
-- **Interfaz minimalista flotante y adaptable:** Barra superior compacta, paneles laterales colapsables con vidrio esmerilado y diseño responsivo para escritorio, tablet y móvil (conservando también el layout *Cyber HUD* desde `DISPLAY ▸ HUD`).
+- **Identidad visual y paleta personalizada:** Icono personalizado de **Ray's Eye View** (`RayXico64`) y tema adaptable en tonos esmeralda, cobre y obsidiana (`#00744d`, `#5ce0af`, `#903116`, `#030505`), con soporte responsivo para escritorio, tablet y pantallas móviles alargadas (conservando también el layout *Cyber HUD* desde `DISPLAY ▸ HUD`).
+- **Pausa de fotogramas y controles 3D independientes:**
+  - Botón **Pausa** (`#pause-frames-btn`) en la barra superior para detener el bucle de renderizado WebGL y apreciar o inspeccionar el fotograma actual sin consumo continuo.
+  - Botones separados en **Visual Presets** para activar/desactivar el modo **3D** del globo (`2D ↔ 3D`) y la capa de **edificios 3D OSM** (`3D BUILDINGS`) de forma independiente.
 - **Idioma español por defecto:** Arranque y controles principales en español, manteniendo el selector multilingüe y soporte mediante `?lang=`.
-- **Control remoto móvil ligero (`?remote=mobile`):** Cuando se accede desde un teléfono en modo remoto, se omite por completo la inicialización 3D de CesiumJS para ofrecer una respuesta instantánea y bajo consumo de batería.
+- **Control remoto móvil ligero (`?remote=mobile`):** Omite la carga 3D de CesiumJS en el teléfono para ofrecer respuesta instantánea, bajo consumo de batería y búsqueda de lugares equivalente al modo `LOCATION`.
+- **Perfil gráfico `Ahorro (30 FPS)` optimizado para hardware legado:** Calibrado específicamente para APUs de bajo consumo como **AMD E-350 (2 núcleos a 1.60 GHz, DDR3-1066 monocanal) + Radeon HD 6310 (80 shaders, máx. 1 GB VRAM compartida)** desde `Seguridad ▸ Perfil de rendimiento gráfico`.
 
 ---
 
-## 📱 Control Remoto Móvil y Código QR
+## 📱 Control Remoto Móvil, SQLite y Código QR
 
-Desde la barra superior de la pantalla principal (botón del teléfono `#remote-pairing-btn`), puedes abrir el panel de **Control Remoto y Destinos**:
+Desde la barra superior de la pantalla principal (botón del teléfono `#remote-pairing-btn`), se abre la consola de **Control Remoto, Seguridad SQL y Destinos** (adaptada también para pantallas móviles y verticales):
 
-1. **Emparejamiento rápido con código QR:** Genera un código QR SVG sin dependencias externas con el enlace directo `/?remote=mobile&session=<código>&pass=<perfil>` y soporte para túneles LAN / DevTunnels.
-2. **Trackpad táctil de cámara (`Cámara`):** Superficie táctil multipunto en modos **Desplazar** y **Orbitar**, además de botones de zoom (`Acercar` / `Alejar`), `Inclinar 3D`, `Vista global`, `Norte` y `Detener`.
-3. **Búsqueda en vivo (`Buscar`):** Busca ciudades, monumentos o coordenadas directas (`lat, lon`) mediante puntos preestablecidos, `/api/geocode` (Nominatim) y respaldo en Photon para volar al instante o guardar el lugar en tu perfil.
-4. **Perfiles por clave (`Destinos`):** Alterna conjuntos independientes de destinos (`alfa1234`, `tactical2026`, `ciudades99` o una clave personalizada) sincronizados vía `/api/remote/session`.
-5. **Capas en tiempo real (`Capas`):** Activa o desactiva vuelos, buques (AIS), satélites, cámaras CCTV, incendios (FIRMS), terremotos y tráfico directamente sobre la pantalla principal.
+1. **Autenticación local sobre SQLite (`data/remote-users.sqlite`):**
+   - Registro e inicio de sesión de cuentas locales con contraseñas cifradas con `scrypt`, tokens Bearer firmados con HMAC en memoria, bloqueo temporal tras intentos fallidos, cambio de contraseña y revocación de otras sesiones.
+2. **Emparejamiento seguro con QR y PIN de un solo uso:**
+   - Genera códigos QR SVG offline (`qrCodeSvg.js`) y **PIN temporal de un solo uso (5 min)** con soporte para túneles LAN / DevTunnels y opción de requerir aprobación manual del PC antes de ejecutar comandos.
+3. **Roles y consola de dispositivos:**
+   - Gestión de sesiones y dispositivos vinculados (**Aprobar**, **Revocar**, **Eliminar**) con roles diferenciados: **Admin**, **Operador** (control completo) y **Control** (interfaz dedicada de monitorización de eventos y estado del servidor SQL).
+   - **Consola de cambios de dispositivos:** Registro de auditoría en vivo con botones para eliminar eventos individuales o limpiar el historial completo (`DELETE /api/remote/audit`).
+4. **Mando móvil (`?remote=mobile`):**
+   - **Cámara:** Trackpad táctil multipunto en modos **Desplazar** y **Orbitar**, zoom (`Acercar` / `Alejar`), `Inclinar 3D`, `Vista global`, `Norte` y `Detener`.
+   - **Buscar:** Búsqueda en vivo estilo `LOCATION` por ciudades preestablecidas, coordenadas directas (`lat, lon`), `/api/geocode` (Nominatim) y Photon para volar al instante o guardar destinos.
+   - **Destinos y Capas:** Perfiles de destinos sincronizados con SQLite (`alfa1234`, `tactical2026`, `ciudades99` o propios), activación de capas en vivo y panel **Control (Monitor SQL)** para supervisar cambios en tiempo real.
+
+---
+
+## ⚡ Perfil de Rendimiento `Ahorro (30 FPS)`
+
+Disponible en **Consola PC ▸ Seguridad ▸ Perfil de rendimiento gráfico** (`Ahorro (30 FPS)` / `Automático` / `Alta calidad`) e implementado en `src/hardwareProfile.js`:
+
+- **CPU dual-core / TDP bajo (18 W):** Limita la tasa a `30 FPS`, desactiva sombras globales (`shadows: false`) y espacia el sondeo de red en reposo (`3000 ms`) y segundo plano (`6000 ms`).
+- **iGPU de baja capacidad (80 shaders / 490 MHz):** Desactiva MSAA (`msaaSamples: 1`), `FXAA`, `HDR`, atmósfera por fragmento y efectos de agua, aplica `resolutionScale: 0.75` (~44 % menos carga de píxeles) con `useBrowserRecommendedResolution: true` y solicita contexto WebGL `low-power`.
+- **Memoria compartida limitada (1 GB VRAM / DDR3-1066):** Reduce la caché de tiles 3D de `2.5 GB` a **160 MB** (+ `64 MB` de desbordamiento) y aplica LOD/descarte agresivo (`maximumScreenSpaceError: 32`, `skipLevelOfDetail: true`, `skipLevels: 2`, `dynamicScreenSpaceErrorFactor: 12.0`, `cullRequestsWhileMoving: true`, `globeTileCacheSize: 24`, niebla de horizonte), propagándose tanto al arranque como en caliente sobre todos los `Cesium3DTileset` activos (Google 3D y OSM 3D Buildings).
 
 ---
 
@@ -539,11 +559,14 @@ How the globe handles live data:
 
 ```
 src/
-├── main.js                   # Arranque: detecta ?remote=mobile (ligero) o inicia globo 3D + QR listener
-├── mobileRemoteController.js # Mando táctil móvil: trackpad, búsqueda en vivo, destinos y capas
-├── customDestinations.js     # Modal de emparejamiento QR, perfiles por clave y captura de vistas
+├── main.js                   # Arranque: detecta ?remote=mobile (ligero) o inicia visor 3D + escucha remota
+├── hardwareProfile.js        # Perfiles gráficos (Ahorro 30 FPS / AMD E-350 + HD 6310) y propagación a tilesets
+├── mobileRemoteController.js # Mando táctil móvil: trackpad, búsqueda LOCATION, destinos, capas y Monitor SQL
+├── customDestinations.js     # Consola PC adaptable: auth SQLite, QR/PIN, RBAC, auditoría, destinos y rendimiento
 ├── qrCodeSvg.js              # Generador QR SVG offline (byte mode, nivel M)
-├── ui/                       # Interfaz Vue 3 + Pinia, plantillas y estilos (incluye minimal-theme.css)
+├── app/                      # Arranque del visor Cesium (viewer.js), escena, controles y herramientas
+├── maps/                     # Mapas base Google 3D / Esri / OSM y controles 3D/edificios (scene3dControls.js)
+├── ui/                       # Interfaz Vue 3 + Pinia, pausa de fotogramas (framePauseControls.js) y estilos
 ├── hud.js                    # Intelligence HUD + resumen de escena
 ├── keySetup.js               # Panel de configuración de claves API (solo servidor dev)
 ├── mapStackController.js     # Mapas base — Google 3D / Esri / OSM / Cesium ion
@@ -555,7 +578,8 @@ src/
 └── scenes/                   # Director de escenas cinematográficas
 
 server/providers/
-└── remote-session.js         # Endpoint /api/remote/session para comandos y destinos compartidos
+├── remote-db.js              # Base SQLite local (cuentas scrypt, sesiones, dispositivos, auditoría y destinos)
+└── remote-session.js         # API HTTP /api/remote/* con auth Bearer, emparejamiento QR/PIN y RBAC
 ```
 
 See [`docs/CURRENT-STATE.md`](docs/CURRENT-STATE.md) for the authoritative runtime reference.

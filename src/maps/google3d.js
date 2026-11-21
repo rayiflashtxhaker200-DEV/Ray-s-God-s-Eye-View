@@ -1,3 +1,5 @@
+import { getOptimalPerformanceProfile } from '../hardwareProfile.js';
+
 const clean = (value) => String(value || '').trim();
 
 /**
@@ -96,10 +98,11 @@ export async function createGoogleTokenTileset(Cesium, tokens) {
       return true;
     },
   });
-  // The settings Cesium's Google helper applies to the key route.
+  const profile = getOptimalPerformanceProfile();
   return Cesium.Cesium3DTileset.fromUrl(resource, {
-    cacheBytes: 1536 * 1024 * 1024,
-    maximumCacheOverflowBytes: 1024 * 1024 * 1024,
+    cacheBytes: profile.tileCacheBytes,
+    maximumCacheOverflowBytes: profile.maximumCacheOverflowBytes,
+    maximumScreenSpaceError: profile.maximumScreenSpaceError,
     enableCollision: true,
     // Tiles keep drawing their own texture while draped weather loads.
     asynchronouslyLoadImagery: true,
@@ -119,10 +122,11 @@ export async function createGoogleIonTileset(
     accessToken,
   });
   signal?.throwIfAborted();
-  // Match the installed SDK's Google helper rendering/cache defaults.
+  const profile = getOptimalPerformanceProfile();
   return Cesium.Cesium3DTileset.fromUrl(resource, {
-    cacheBytes: 1536 * 1024 * 1024,
-    maximumCacheOverflowBytes: 1024 * 1024 * 1024,
+    cacheBytes: profile.tileCacheBytes,
+    maximumCacheOverflowBytes: profile.maximumCacheOverflowBytes,
+    maximumScreenSpaceError: profile.maximumScreenSpaceError,
     enableCollision: true,
     // Tiles keep drawing their own texture while draped weather loads.
     asynchronouslyLoadImagery: true,

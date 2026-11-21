@@ -13,9 +13,10 @@ import {
   governorRequestRender,
 } from './renderGovernor.js';
 import {
+  getHardwareMode,
+  setHardwareMode,
   getOptimalPerformanceProfile,
   applyHardwareOptimizations,
-  STORAGE_HARDWARE_MODE_KEY,
 } from './hardwareProfile.js';
 import { renderQrCodeSvg } from './qrCodeSvg.js';
 
@@ -1354,21 +1355,44 @@ export function mountPcPairingAndDestinationsPanel(viewer) {
   });
 
   const hwFeedback = modal.querySelector('#gev-hw-feedback');
-  function updateHardwareUI(mode) {
-    localStorage.setItem(STORAGE_HARDWARE_MODE_KEY, mode);
-    applyHardwareOptimizations(viewer);
-    const prof = getOptimalPerformanceProfile();
+  const hwButtons = [
+    { mode: 'low', el: modal.querySelector('#gev-btn-hw-low') },
+    { mode: 'auto', el: modal.querySelector('#gev-btn-hw-auto') },
+    { mode: 'high', el: modal.querySelector('#gev-btn-hw-high') },
+  ];
+
+  function renderHardwareStatus(mode, prof) {
+    for (const item of hwButtons) {
+      const isSelected = item.mode === mode;
+      item.el?.classList.toggle('is-active', isSelected);
+      item.el?.setAttribute('aria-pressed', String(isSelected));
+    }
+    const cacheMb = Math.round(prof.tileCacheBytes / 1024 / 1024);
     if (mode === 'low') {
-      setInlineFeedback(hwFeedback, 'Modo ahorro activo: 30 FPS y caché ligera.');
+      setInlineFeedback(
+        hwFeedback,
+        `Ahorro 30 FPS activo (AMD E-350 / HD 6310): ${prof.targetFrameRate} FPS · escala ${prof.resolutionScale}x · caché ${cacheMb} MB · MSAA/FXAA desactivados.`,
+      );
     } else if (mode === 'high') {
-      setInlineFeedback(hwFeedback, 'Modo alta calidad activo: 60 FPS.');
+      setInlineFeedback(
+        hwFeedback,
+        `Alta calidad activa: ${prof.targetFrameRate} FPS · escala ${prof.resolutionScale}x · caché ${cacheMb} MB · MSAA ${prof.msaaSamples}x.`,
+      );
     } else {
       setInlineFeedback(
         hwFeedback,
-        `Modo automático: ${prof.isLowSpec ? 'hardware ligero' : 'hardware estándar'}.`,
+        `Automático (${prof.isLowSpec ? 'perfil ligero 30 FPS' : 'hardware estándar 60 FPS'}): ${prof.targetFrameRate} FPS · escala ${prof.resolutionScale}x · caché ${cacheMb} MB.`,
       );
     }
   }
+
+  function updateHardwareUI(mode) {
+    const savedMode = setHardwareMode(mode);
+    const prof = applyHardwareOptimizations(viewer);
+    renderHardwareStatus(savedMode, prof);
+  }
+
+  renderHardwareStatus(getHardwareMode(), getOptimalPerformanceProfile());
 
   modal.querySelector('#gev-btn-hw-low').addEventListener('click', () => updateHardwareUI('low'));
   modal.querySelector('#gev-btn-hw-auto').addEventListener('click', () => updateHardwareUI('auto'));

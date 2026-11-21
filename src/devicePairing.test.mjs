@@ -18,7 +18,10 @@ import {
   DEFAULT_PASSWORD_PRESETS,
 } from './customDestinations.js';
 import { renderQrCodeSvg, encodeQrMatrix } from './qrCodeSvg.js';
-import { getOptimalPerformanceProfile } from './hardwareProfile.js';
+import {
+  getOptimalPerformanceProfile,
+  applyHardwareOptimizations,
+} from './hardwareProfile.js';
 import { createRemoteSqlStore } from '../server/providers/remote-db.js';
 import {
   remoteSessionStore,
@@ -575,11 +578,90 @@ test('executes remote commands including camera_delta, reset_north, and toggle_t
   assert.equal(calls.cancelFlight, true);
 });
 
-test('provides hardware optimization profile for low-spec Dell i5 1st Gen and AMD E-450', () => {
+test('provides hardware optimization profile tuned for AMD E-350 (2C 1.6GHz) and Radeon HD 6310 (80 shaders, 1GB)', () => {
   const profile = getOptimalPerformanceProfile();
   assert.ok(profile);
-  assert.ok(profile.targetFrameRate <= 60);
-  assert.ok(profile.tileCacheBytes <= 1024 * 1024 * 1024);
-  assert.ok(profile.maximumScreenSpaceError >= 16);
-  assert.ok(profile.msaaSamples <= 2);
+  assert.equal(profile.isLowSpec, true);
+  assert.equal(profile.targetFrameRate, 30);
+  assert.equal(profile.resolutionScale, 0.75);
+  assert.equal(profile.useBrowserRecommendedResolution, true);
+  assert.equal(profile.msaaSamples, 1);
+  assert.equal(profile.fxaaEnabled, false);
+  assert.equal(profile.hdrEnabled, false);
+  assert.equal(profile.shadowsEnabled, false);
+  assert.equal(profile.tileCacheBytes, 160 * 1024 * 1024);
+  assert.equal(profile.maximumCacheOverflowBytes, 64 * 1024 * 1024);
+  assert.ok(profile.maximumScreenSpaceError >= 32);
+  assert.ok(profile.globeTileCacheSize <= 24);
+});
+
+test('applyHardwareOptimizations propagates low-spec limits to viewer, FXAA, and active scene tilesets', () => {
+  const tilesetA = {
+    cacheBytes: 1536 * 1024 * 1024,
+    maximumCacheOverflowBytes: 1024 * 1024 * 1024,
+    maximumScreenSpaceError: 16,
+    skipLevelOfDetail: false,
+  };
+  const tilesetB = {
+    cacheBytes: 512 * 1024 * 1024,
+    maximumCacheOverflowBytes: 256 * 1024 * 1024,
+    maximumScreenSpaceError: 16,
+    skipLevelOfDetail: false,
+  };
+  const primitives = [tilesetA, { unrelated: true }, tilesetB];
+  let renderCalls = 0;
+
+  const mockViewer = {
+    targetFrameRate: 60,
+    resolutionScale: 1.0,
+    useBrowserRecommendedResolution: false,
+    shadows: true,
+    scene: {
+      msaaSamples: 4,
+      highDynamicRange: true,
+      sunBloom: true,
+      requestRender() {
+        renderCalls += 1;
+      },
+      postProcessStages: {
+        fxaa: { enabled: true },
+      },
+      skyAtmosphere: { perFragmentAtmosphere: true },
+      globe: {
+        tileCacheSize: 100,
+        maximumScreenSpaceError: 1.5,
+        showWaterEffect: true,
+        showGroundAtmosphere: true,
+        loadingDescendantLimit: 20,
+        enableLighting: true,
+      },
+      fog: { enabled: false, density: 0.0001, screenSpaceErrorFactor: 2.0 },
+      primitives: {
+        length: primitives.length,
+        get: (i) => primitives[i],
+      },
+    },
+  };
+
+  const applied = applyHardwareOptimizations(mockViewer);
+  assert.equal(applied.isLowSpec, true);
+  assert.equal(mockViewer.targetFrameRate, 30);
+  assert.equal(mockViewer.resolutionScale, 0.75);
+  assert.equal(mockViewer.useBrowserRecommendedResolution, true);
+  assert.equal(mockViewer.shadows, false);
+  assert.equal(mockViewer.scene.msaaSamples, 1);
+  assert.equal(mockViewer.scene.highDynamicRange, false);
+  assert.equal(mockViewer.scene.postProcessStages.fxaa.enabled, false);
+  assert.equal(mockViewer.scene.skyAtmosphere.perFragmentAtmosphere, false);
+  assert.equal(mockViewer.scene.globe.tileCacheSize, 24);
+  assert.equal(mockViewer.scene.globe.showWaterEffect, false);
+  assert.equal(mockViewer.scene.globe.showGroundAtmosphere, false);
+  assert.equal(tilesetA.cacheBytes, 160 * 1024 * 1024);
+  assert.equal(tilesetA.maximumCacheOverflowBytes, 64 * 1024 * 1024);
+  assert.equal(tilesetA.maximumScreenSpaceError, 32);
+  assert.equal(tilesetA.skipLevelOfDetail, true);
+  assert.equal(tilesetA.skipLevels, 2);
+  assert.equal(tilesetB.cacheBytes, 160 * 1024 * 1024);
+  assert.equal(tilesetB.maximumScreenSpaceError, 32);
+  assert.equal(renderCalls, 1);
 });

@@ -15,6 +15,7 @@ import {
 } from '../renderGovernor.js';
 import { describeError } from './errors.js';
 import { onLocaleChange, t } from '../i18n/index.js';
+import { applyHardwareOptimizations } from '../hardwareProfile.js';
 
 /** Construct the application globe using the caller's local configuration. */
 export async function createApplicationScene({
@@ -83,6 +84,7 @@ export async function createApplicationScene({
     // NOTE: Cesium World Terrain intentionally disabled — conflicts with Google 3D Tiles at high zoom.
     // Google Photorealistic 3D Tiles provide their own terrain/elevation.
     viewer.scene.globe.show = false;
+    applyHardwareOptimizations(viewer, tileset);
     console.info(`[Init] Google 3D Tiles loaded via ${photoreal.route}.`);
   } else {
     if (photoreal.errors.length) {
@@ -100,6 +102,7 @@ export async function createApplicationScene({
       );
     }
     viewer.scene.globe.show = true;
+    applyHardwareOptimizations(viewer);
   }
 
   loaderStatus.textContent = t('Initializing systems...');

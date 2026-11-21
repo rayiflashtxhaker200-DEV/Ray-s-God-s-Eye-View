@@ -1,5 +1,9 @@
 import * as Cesium from 'cesium';
 import { t } from '../i18n/index.js';
+import {
+  getOptimalPerformanceProfile,
+  applyHardwareOptimizations,
+} from '../hardwareProfile.js';
 
 const OSM_BUILDINGS_ASSET_ID = 96188;
 
@@ -13,14 +17,18 @@ async function defaultCreateOsmBuildings({ token }) {
   const resource = await Cesium.IonResource.fromAssetId(OSM_BUILDINGS_ASSET_ID, {
     accessToken: token,
   });
+  const profile = getOptimalPerformanceProfile();
   const tileset = await Cesium.Cesium3DTileset.fromUrl(resource, {
     showOutline: false,
     enableShowOutline: false,
-    maximumScreenSpaceError: 16,
+    cacheBytes: profile.tileCacheBytes,
+    maximumCacheOverflowBytes: profile.maximumCacheOverflowBytes,
+    maximumScreenSpaceError: profile.maximumScreenSpaceError,
     dynamicScreenSpaceError: true,
-    dynamicScreenSpaceErrorDensity: 2.0e-4,
-    dynamicScreenSpaceErrorFactor: 8.0,
+    dynamicScreenSpaceErrorDensity: profile.isLowSpec ? 0.002 : 2.0e-4,
+    dynamicScreenSpaceErrorFactor: profile.isLowSpec ? 12.0 : 8.0,
     dynamicScreenSpaceErrorHeightFalloff: 0.25,
+    skipLevelOfDetail: profile.skipLevelOfDetail,
     enableCollision: true,
   });
   if (!tileset.style && typeof Cesium.Cesium3DTileStyle === 'function') {
@@ -271,6 +279,7 @@ export function createScene3dControls({
         },
       );
       viewer?.scene?.primitives?.add?.(tileset);
+      applyHardwareOptimizations(viewer, tileset);
       loadingBuildings = false;
       syncTilesetVisibility();
       syncButtons();

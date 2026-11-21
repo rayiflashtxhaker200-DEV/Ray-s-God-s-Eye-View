@@ -1,6 +1,10 @@
 import * as Cesium from 'cesium';
 import { applyModelAtmosphereWorkaround } from './atmosphereCompat.js';
 import { StarrySky } from '../sky/starrySky.js';
+import {
+  getOptimalPerformanceProfile,
+  applyHardwareOptimizations,
+} from '../hardwareProfile.js';
 
 const PINCH_ZOOM_MULTIPLIER = 8;
 const MAX_PINCH_PIXEL_DELTA = 120;
@@ -105,6 +109,7 @@ export function installTrackpadPinchZoom(
 
 /** Cesium.Viewer options of the standard globe viewer. */
 export function applicationViewerOptions(creditContainer) {
+  const profile = getOptimalPerformanceProfile();
   return {
     timeline: false,
     animation: false,
@@ -122,8 +127,17 @@ export function applicationViewerOptions(creditContainer) {
     // which would also stop CesiumWidget from creating the Sun and Moon.
     skyBox: new StarrySky(),
     creditContainer,
-    msaaSamples: 4,
-    contextOptions: { webgl: { preserveDrawingBuffer: true } },
+    msaaSamples: profile.msaaSamples,
+    shadows: profile.shadowsEnabled,
+    useBrowserRecommendedResolution: profile.useBrowserRecommendedResolution,
+    contextOptions: {
+      webgl: {
+        preserveDrawingBuffer: true,
+        ...(profile.isLowSpec
+          ? { antialias: false, powerPreference: 'low-power' }
+          : {}),
+      },
+    },
   };
 }
 
@@ -136,7 +150,6 @@ export function createApplicationViewer({ container, creditContainer }) {
     applicationViewerOptions(creditContainer),
   );
   try {
-    viewer.targetFrameRate = 60;
     // A phone pinch spans fewer screen pixels than desktop zoom gestures.
     // Keep Cesium's distance-aware zoom and collision limits, with less travel
     // required on touch-first screens. Mouse/trackpad sensitivity stays native.
@@ -151,6 +164,7 @@ export function createApplicationViewer({ container, creditContainer }) {
     viewer.scene.skyAtmosphere.atmosphereLightIntensity = 18;
     viewer.scene.skyAtmosphere.saturationShift = -0.12;
     viewer.scene.skyAtmosphere.brightnessShift = -0.08;
+    applyHardwareOptimizations(viewer);
     if (typeof viewer.canvas?.addEventListener === 'function') {
       viewer.canvas.addEventListener(
         'webglcontextlost',

@@ -23,7 +23,7 @@
   inset: -18px;
   background: radial-gradient(
     ellipse at center,
-    rgba(0, 212, 255, 0.16) 0%,
+    rgba(var(--accent-rgb), 0.16) 0%,
     transparent 65%
   );
   filter: blur(16px);
@@ -43,7 +43,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 212, 255, 0.46) transparent;
+  scrollbar-color: rgba(var(--accent-rgb), 0.46) transparent;
 }
 #weather-panel.collapsed #weather-panel-body,
 #weather-panel[hidden],
@@ -70,7 +70,7 @@
   letter-spacing: 0.5px;
 }
 .weather-readout {
-  --weather-card-border: rgba(98, 181, 255, 0.28);
+  --weather-card-border: rgba(var(--accent-rgb), 0.24);
 }
 .rail-card {
   padding: 0;
@@ -83,11 +83,11 @@
 }
 .rail-card:not(.is-open):hover,
 .rail-card:not(.is-open):focus-within {
-  border-color: #79c2ff;
+  border-color: rgba(var(--accent-rgb), 0.72);
 }
 .rail-card.is-open {
-  border-color: rgba(0, 212, 255, 0.55);
-  background: rgba(42, 113, 171, 0.09);
+  border-color: rgba(var(--accent-rgb), 0.55);
+  background: rgba(0, 59, 70, 0.18);
 }
 .rail-card-labels {
   display: flex;
@@ -120,7 +120,7 @@
   letter-spacing: 0.3px;
 }
 .rail-card.is-open .rail-card-title {
-  color: #e8feff;
+  color: #eafbf5;
 }
 .rail-card-nowrap {
   white-space: nowrap;
@@ -366,9 +366,9 @@ html:not([lang='en']) .rail-card-setting {
   display: grid;
   gap: 4px;
   margin-top: 8px;
-  border: 1px solid rgba(65, 220, 231, 0.18);
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
   border-radius: 7px;
-  background: rgba(2, 15, 20, 0.48);
+  background: rgba(5, 16, 13, 0.54);
   padding: 10px;
 }
 .rail-card-result-header {
@@ -390,7 +390,7 @@ html:not([lang='en']) .rail-card-setting {
   margin-top: 0;
 }
 .rail-card-result [data-line-id='wind'] {
-  color: #e8feff;
+  color: #eafbf5;
   font: 13px/1.25 var(--font-mono);
 }
 .rail-card-result [data-line-id='explanation'] {

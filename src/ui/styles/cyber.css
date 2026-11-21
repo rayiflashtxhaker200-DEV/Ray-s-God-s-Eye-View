@@ -107,6 +107,8 @@
   --glass-border: rgba(206, 222, 226, 0.28);
   --glass-border-hover: rgba(196, 84, 84, 0.82);
   --accent: #e9f0f1;
+  --accent-rgb: 196, 84, 84;
+  --accent-bright: #f2b2b2;
   --accent-dim: rgba(196, 84, 84, 0.2);
   --accent-glow: rgba(196, 84, 84, 0.34);
   --text-primary: #f2f5f4;
@@ -792,8 +794,7 @@
   color: var(--cyber-red-bright);
 }
 
-:root[data-ui-theme='cyber']
-  :where(.dock-pin-btn img, .title-logo img, .brand-logo img) {
+:root[data-ui-theme='cyber'] :where(.dock-pin-btn img) {
   filter: grayscale(1) brightness(2.2) contrast(1.1);
 }
 

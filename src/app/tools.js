@@ -10,6 +10,7 @@ import { initGevVoiceCommands } from '../voice/gevRealtime.js';
 import { installViews, isEmbeddedInline } from './embed.js';
 import { installScopeMask, destroyScopeMask } from '../scopeMask.js';
 import { installLayerReleaseTrim } from '../sceneCommandRelease.js';
+import { isFramesPausedForViewer } from '../ui/framePauseControls.js';
 import {
   installRenderGovernor,
   getRenderGovernorDiagnostics,
@@ -34,6 +35,7 @@ export function createApplicationTools({
 }) {
   const { viewer, tileset, mapStackController, operations } = scene;
   const { styleManager, weatherEffects, cockpitCloudEffects } = controls;
+  styleManager?.attachCockpitCloudEffects?.(cockpitCloudEffects);
   const { dataManager } = data;
   const sceneDirector = new SceneDirector(viewer, styleManager, dataManager, {
     dataPacks: sceneDataPacks,
@@ -161,9 +163,11 @@ export function createApplicationTools({
     // A panel's host may report it hidden while it is on screen; the panel
     // keeps drawing itself (see keepPanelRendering in embed.js).
     const hidden = document.hidden && !isEmbeddedInline();
-    viewer.useDefaultRenderLoop = !hidden;
-    cockpitCloudEffects?.setSuspended?.(hidden);
-    if (!hidden) {
+    const paused = isFramesPausedForViewer(viewer);
+    const suspended = hidden || paused;
+    viewer.useDefaultRenderLoop = !suspended;
+    cockpitCloudEffects?.setSuspended?.(suspended);
+    if (!suspended) {
       data.presentation.flushVisible();
       governorRequestRender('visibility-restore');
     }

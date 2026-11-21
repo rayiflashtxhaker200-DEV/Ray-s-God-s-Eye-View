@@ -188,6 +188,7 @@ export function readShellElements(document = globalThis.document) {
     _cctvLbFocusBtn: document.getElementById('cctv-lb-focus'),
     _cctvLbCloseBtn: document.getElementById('cctv-lb-close'),
     _shareBtn: document.getElementById('share-btn'),
+    _pauseFramesBtn: document.getElementById('pause-frames-btn'),
     _tiltMapBtn: document.getElementById('tilt-map-view'),
     _northUpBtn: document.getElementById('north-up-view'),
     _clearSelectedLayersBtn: document.getElementById('clear-selected-layers'),

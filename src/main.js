@@ -26,7 +26,7 @@ if (isMobileRemote()) {
     { createStandaloneApplication },
     { describeError },
     { t },
-    { mountPcPairingAndDestinationsPanel },
+    { mountPcPairingAndDestinationsPanel, getPcRemoteAuth, onPcAuthChange },
   ] = await Promise.all([
     import('./standalone/application.js'),
     import('./standalone/errors.js'),
@@ -83,15 +83,26 @@ if (isMobileRemote()) {
         window.__godsEyeView?.styleManager;
       const voiceCommands =
         components?.tools?.voiceCommands || window.__godsEyeView?.voiceCommands;
+      const placeSearch =
+        components?.placeSearch || styleManager?.placeSearch || null;
+      const surfaceServices =
+        components?.scene?.operations?.surface ||
+        window.__godsEyeView?.surfaceServices ||
+        null;
 
       mountPcPairingAndDestinationsPanel(viewer);
       startPcRemoteListener({
+        getAuthToken: () => getPcRemoteAuth().token,
+        onAuthChange: onPcAuthChange,
+        sessionName: () => getPcRemoteAuth().user?.username || '',
         app: {
           viewer,
           dataManager,
           sceneDirector,
           styleManager,
           voiceCommands,
+          placeSearch,
+          surfaceServices,
         },
       });
     })

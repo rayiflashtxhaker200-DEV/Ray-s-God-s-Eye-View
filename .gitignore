@@ -28,3 +28,10 @@ pinokio/.installed
 
 # Transient: a release interrupted mid-assembly (npm run changelog recovers it)
 changelog.d/.assembling/
+
+# Local SQLite database runtime files for remote users/sessions
+data/*.sqlite
+data/*.sqlite-*
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

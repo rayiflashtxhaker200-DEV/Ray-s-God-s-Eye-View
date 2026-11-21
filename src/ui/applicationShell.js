@@ -22,6 +22,9 @@ import { LocalSdrControls } from './localSdrControls.js';
 import { LocationNavigation } from './locationNavigation.js';
 import { bindCameraOrientationControls } from './cameraOrientationControls.js';
 import { createMapSourceControls } from './mapSource.js';
+import { createScene3dControls } from '../maps/scene3dControls.js';
+import { createFramePauseControls } from './framePauseControls.js';
+import { isEmbeddedInline } from '../app/embed.js';
 import { STYLES } from './effects.js';
 import { isHudLayout } from '../hudLayouts.js';
 import {
@@ -310,6 +313,7 @@ export class StyleManager extends ShellFacade {
         trafficLayer: services.trafficLayer,
         flyToPresetLocation: services.flyToPresetLocation,
         flyToPOI: services.flyToPOI,
+        flyToLandmark: services.flyToLandmark,
         GLOBE_VIEW: services.GLOBE_VIEW,
         flyToGlobeView: services.flyToGlobeView,
         interruptCameraMotion: services.interruptCameraMotion,
@@ -551,6 +555,8 @@ export class StyleManager extends ShellFacade {
         _setModels3dEnabled: (...args) => this._setModels3dEnabled(...args),
         _syncModels3dModeRow: (...args) => this._syncModels3dModeRow(...args),
         _setModels3dMode: (...args) => this._setModels3dMode(...args),
+        toggleGlobe3d: () => this._scene3dControls?.toggleGlobe3d?.(),
+        toggleBuildings3d: () => this._scene3dControls?.toggleBuildings3d?.(),
       },
       readState: () => ({
         shareLinkManager: this.shareLinkManager,
@@ -569,6 +575,7 @@ export class StyleManager extends ShellFacade {
     });
     this._initUI();
     this._initMapStackControl();
+    this._initScene3dControls();
     this._initPanelChrome();
     this._panelNavigation = new PanelNavigation({
       ui: this._ui,
@@ -589,6 +596,7 @@ export class StyleManager extends ShellFacade {
     this._initMobileShell();
     this._initShareButton();
     this._initCameraOrientationControls();
+    this._initFramePauseControls();
     this._initClearSelectedLayersButton();
     this._initHUDToggle();
     this._initModels3dToggle();
@@ -854,6 +862,27 @@ export class StyleManager extends ShellFacade {
       onError: (message) => this._showToast(message),
     });
     displayStore.connectMapSource(this._mapSourceControls);
+  }
+
+  _initScene3dControls() {
+    this._scene3dControls?.dispose();
+    this._scene3dControls = createScene3dControls({
+      viewer: this.viewer,
+      mapStackController: this.mapStackController,
+      setMapStack: (stackId, options) => this._setMapStack(stackId, options),
+      requestRender: this.services.governorRequestRender,
+      globeButton: this._globe3dBtn,
+      buildingsButton: this._buildings3dBtn,
+      showToast: (message) => this._showToast(message),
+    });
+  }
+
+  setGlobe3dEnabled(enabled, options) {
+    return this._scene3dControls?.setGlobe3dEnabled?.(enabled, options);
+  }
+
+  setBuildings3dEnabled(enabled, options) {
+    return this._scene3dControls?.setBuildings3dEnabled?.(enabled, options);
   }
 
   /**
@@ -1378,6 +1407,12 @@ export class StyleManager extends ShellFacade {
         enabled: !!this._models3dEnabled,
         mode: this._models3dMode || 'proximity',
       },
+      scene3d: this._scene3dControls?.getState?.() || {
+        globe3d: true,
+        buildings3d: false,
+        loadingBuildings: false,
+      },
+      framesPaused: Boolean(this._framePauseControls?.isPaused?.()),
       recording: !!this._recording._recordingMode,
       cleanView: document.body.classList.contains('ui-clean-view'),
     };
@@ -1618,6 +1653,32 @@ export class StyleManager extends ShellFacade {
     this._cameraOrientationControls = controls;
   }
 
+  _initFramePauseControls() {
+    this._framePauseControls?.dispose();
+    this._framePauseControls = createFramePauseControls({
+      viewer: this.viewer,
+      button: this._pauseFramesBtn,
+      visualEffects: this._visualEffects,
+      cockpitCloudEffects: this._cockpitCloudEffects || null,
+      requestRender: this.services.governorRequestRender,
+      isHidden: () => Boolean(document?.hidden) && !isEmbeddedInline(),
+      showToast: (message) => this._showToast(message),
+    });
+  }
+
+  attachCockpitCloudEffects(cloudEffects) {
+    this._cockpitCloudEffects = cloudEffects || null;
+    this._framePauseControls?.attachCloudEffects?.(cloudEffects);
+  }
+
+  toggleFramesPaused() {
+    return this._framePauseControls?.toggle?.() ?? false;
+  }
+
+  setFramesPaused(paused, options) {
+    return this._framePauseControls?.setPaused?.(paused, options) ?? false;
+  }
+
   // ── Share Button ─────────────────────────────
 
   /**
@@ -1752,6 +1813,10 @@ export class StyleManager extends ShellFacade {
     this._feedback.destroy();
 
     this._displayBindings.destroy();
+    this._scene3dControls?.dispose();
+    this._scene3dControls = null;
+    this._framePauseControls?.dispose();
+    this._framePauseControls = null;
     this._mapSourceControls?.destroy();
     useDisplayStore(applicationPinia()).connectMapSource(null);
     useDisplayStore(applicationPinia()).publishMapSource(null);

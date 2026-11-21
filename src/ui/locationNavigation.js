@@ -231,6 +231,73 @@ export class LocationNavigation {
     this._updateLocationMiniStatus();
   }
 
+  /** Select a preset city (or specific POI) from remote control without toggling off if already expanded. */
+  selectPresetLocation(cityId, poiIndex = null) {
+    if (this._disposed) return false;
+    const { CITY_POIS } = this.services;
+    const city = CITY_POIS?.[cityId];
+    if (!city) return false;
+    if (Number.isInteger(poiIndex) && city.pois?.[poiIndex]) {
+      this._expandPOIRow(cityId);
+      this._onPoiClick(cityId, poiIndex);
+      return true;
+    }
+    if (this._expandedCityId === cityId) {
+      this._expandedCityId = null;
+    }
+    this._onCityPillClick(cityId);
+    return true;
+  }
+
+  /** Run the exact desktop LOCATION search lookup and fly-to pipeline for a query. */
+  searchLocationQuery(query) {
+    const clean = String(query || '').trim();
+    if (this._disposed || !clean || !this._locationLookup) return false;
+    if (this._locationSearch) {
+      this._locationSearch.value = clean;
+    }
+    void this._locationLookup.run(clean);
+    return true;
+  }
+
+  /** Fly directly to geographic coordinates using Location landmark framing and update status. */
+  flyToCoordinates(
+    lat,
+    lon,
+    { range = 1400, pitch = -35, heading = 0, label = null, ground = null } = {},
+  ) {
+    const { flyToLandmark } = this.services;
+    const nLat = Number(lat);
+    const nLon = Number(lon);
+    if (
+      this._disposed ||
+      !Number.isFinite(nLat) ||
+      !Number.isFinite(nLon) ||
+      typeof flyToLandmark !== 'function'
+    ) {
+      return false;
+    }
+    const result = this._flyWithTransition(false, (hooks) =>
+      flyToLandmark(this.viewer, nLat, nLon, {
+        range,
+        pitch,
+        heading,
+        buildingHeight: 0,
+        ground,
+        ...hooks,
+      }),
+    );
+    if (result === false) return false;
+    this._currentTarget = result?.targetPosition || null;
+    this._currentPoi = null;
+    this._searchedLocationLabel =
+      label || `${nLat.toFixed(4)}, ${nLon.toFixed(4)}`;
+    this._setActiveLocation(null);
+    this._collapsePOIRow();
+    this._updateLocationMiniStatus();
+    return true;
+  }
+
   _expandPOIRow(cityId) {
     const { CITY_POIS } = this.services;
     if (!CITY_POIS[cityId]) return;

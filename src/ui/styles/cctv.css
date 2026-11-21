@@ -32,7 +32,7 @@
   inset: -18px;
   background: radial-gradient(
     ellipse at center,
-    rgba(0, 212, 255, 0.16) 0%,
+    rgba(var(--accent-rgb), 0.16) 0%,
     transparent 65%
   );
   filter: blur(16px);
@@ -57,7 +57,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 212, 255, 0.46) rgba(255, 255, 255, 0.06);
+  scrollbar-color: rgba(var(--accent-rgb), 0.46) rgba(255, 255, 255, 0.06);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
   box-shadow:
@@ -88,10 +88,10 @@
 .cctv-panel-inner::-webkit-scrollbar-thumb {
   background: linear-gradient(
     180deg,
-    rgba(0, 212, 255, 0.6),
-    rgba(0, 212, 255, 0.28)
+    rgba(var(--accent-rgb), 0.6),
+    rgba(var(--accent-rgb), 0.28)
   );
-  border: 1px solid rgba(0, 212, 255, 0.4);
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
   border-radius: 999px;
 }
 
@@ -128,7 +128,7 @@
 .cctv-icon-btn.active {
   color: var(--accent);
   border-color: var(--accent);
-  background: rgba(0, 212, 255, 0.14);
+  background: rgba(var(--accent-rgb), 0.14);
 }
 
 /* ── Monitor Stage ──────────────────────────── */
@@ -144,10 +144,10 @@
   background:
     radial-gradient(
       circle at 20% 20%,
-      rgba(0, 244, 255, 0.09),
+      rgba(var(--accent-rgb), 0.1),
       transparent 44%
     ),
-    linear-gradient(180deg, rgba(8, 14, 19, 0.92), rgba(4, 7, 11, 0.98));
+    linear-gradient(180deg, rgba(6, 16, 13, 0.94), rgba(3, 6, 5, 0.98));
   flex-shrink: 0;
 }
 
@@ -161,8 +161,8 @@
   padding: 6px 7px;
   background: linear-gradient(
     180deg,
-    rgba(6, 11, 18, 0.92),
-    rgba(6, 11, 18, 0.72)
+    rgba(5, 13, 11, 0.94),
+    rgba(5, 13, 11, 0.76)
   );
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   z-index: 2;
@@ -206,7 +206,7 @@
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.8px;
-  color: #cff6ff;
+  color: #e4f8f0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -252,19 +252,19 @@
 .cctv-stage-tool-btn.active {
   color: var(--accent);
   border-color: var(--accent);
-  background: rgba(0, 212, 255, 0.16);
+  background: rgba(var(--accent-rgb), 0.16);
 }
 
 .cctv-stage-tool-btn.is-paused,
 .cctv-stage-tool-btn.is-paused:hover:not(:disabled) {
-  color: #ffd48a;
-  border-color: rgba(255, 184, 77, 0.72);
-  background: rgba(255, 184, 77, 0.18);
-  box-shadow: 0 0 8px rgba(255, 184, 77, 0.2);
+  color: #f3b88b;
+  border-color: rgba(var(--ember-rgb, 144, 49, 22), 0.85);
+  background: rgba(var(--ember-rgb, 144, 49, 22), 0.26);
+  box-shadow: 0 0 8px rgba(var(--ember-rgb, 144, 49, 22), 0.24);
 }
 
 .cctv-frame-wrap.is-paused .cctv-stage-label {
-  color: #ffd48a;
+  color: #f3b88b;
 }
 
 .cctv-zoom-badge {
@@ -282,7 +282,7 @@
   aspect-ratio: 16 / 9;
   min-height: 176px;
   overflow: hidden;
-  background: #03060a;
+  background: #030505;
   user-select: none;
 }
 
@@ -303,9 +303,9 @@
   background: linear-gradient(
     100deg,
     transparent 24%,
-    rgba(0, 212, 255, 0.08) 44%,
-    rgba(170, 244, 255, 0.14) 50%,
-    rgba(0, 212, 255, 0.08) 56%,
+    rgba(var(--accent-rgb), 0.08) 44%,
+    rgba(var(--accent-rgb), 0.16) 50%,
+    rgba(var(--accent-rgb), 0.08) 56%,
     transparent 76%
   );
   transform: translateX(-100%);
@@ -328,7 +328,7 @@
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 2px;
-  color: rgba(145, 237, 255, 0.72);
+  color: var(--accent-bright, #5ce0af);
   pointer-events: none;
 }
 
@@ -405,7 +405,7 @@
 
 .cctv-stage-empty-icon {
   font-size: 26px;
-  color: rgba(0, 212, 255, 0.42);
+  color: rgba(var(--accent-rgb), 0.42);
 }
 
 .cctv-stage-empty-text {
@@ -450,12 +450,12 @@
   border-radius: 0;
   z-index: 9500;
   gap: 10px;
-  background: rgba(4, 7, 12, 0.97);
+  background: rgba(3, 8, 7, 0.97);
   box-sizing: border-box;
 }
 
 .cctv-frame-wrap::backdrop {
-  background: rgba(2, 5, 9, 0.9);
+  background: rgba(2, 6, 5, 0.92);
   backdrop-filter: blur(8px);
 }
 
@@ -484,7 +484,7 @@
   flex-wrap: wrap;
   padding: 8px 10px;
   border-radius: 8px;
-  background: rgba(10, 17, 26, 0.88);
+  background: rgba(6, 16, 13, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
@@ -492,7 +492,7 @@
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 1px;
-  color: #bdf3ff;
+  color: #dcf7ec;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -526,7 +526,7 @@
 
 .cctv-count-chip {
   min-width: 0;
-  --status-badge-color: #cdeeff;
+  --status-badge-color: #dcf7ec;
   --status-badge-border: rgba(255, 255, 255, 0.16);
   --status-badge-background: rgba(255, 255, 255, 0.05);
 }
@@ -600,7 +600,7 @@ html:not([lang='en']) .cctv-controls .scene-btn {
   overflow-y: auto;
   padding-right: 2px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 212, 255, 0.4) rgba(255, 255, 255, 0.04);
+  scrollbar-color: rgba(var(--accent-rgb), 0.4) rgba(255, 255, 255, 0.04);
 }
 
 .cctv-wall-grid[hidden] {
@@ -619,7 +619,7 @@ html:not([lang='en']) .cctv-controls .scene-btn {
   padding: 4px;
   border-radius: 7px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(8, 13, 20, 0.72);
+  background: rgba(6, 15, 12, 0.78);
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -630,14 +630,14 @@ html:not([lang='en']) .cctv-controls .scene-btn {
 }
 
 .cctv-wall-card:hover {
-  border-color: rgba(0, 212, 255, 0.55);
-  background: rgba(0, 212, 255, 0.08);
+  border-color: rgba(var(--accent-rgb), 0.55);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 
 .cctv-wall-card.is-active {
   border-color: var(--accent);
-  background: rgba(0, 212, 255, 0.14);
-  box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.35);
+  background: rgba(var(--accent-rgb), 0.14);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.35);
 }
 
 .cctv-wall-thumb-wrap {
@@ -646,7 +646,7 @@ html:not([lang='en']) .cctv-controls .scene-btn {
   aspect-ratio: 16 / 9;
   border-radius: 4px;
   overflow: hidden;
-  background: #04070c;
+  background: #030706;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -674,7 +674,7 @@ html:not([lang='en']) .cctv-controls .scene-btn {
 .cctv-wall-fallback {
   position: absolute;
   font-size: 18px;
-  color: rgba(145, 237, 255, 0.28);
+  color: rgba(var(--accent-rgb), 0.3);
 }
 
 .cctv-wall-thumb-wrap.is-loaded .cctv-wall-fallback {
@@ -789,7 +789,7 @@ html:not([lang='en']) .cctv-controls .scene-btn {
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.7px;
-  color: #91edff;
+  color: var(--accent-bright, #5ce0af);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 7px;
@@ -801,8 +801,8 @@ html:not([lang='en']) .cctv-controls .scene-btn {
 }
 
 .cctv-cal-value:hover:not(:disabled) {
-  border-color: rgba(0, 212, 255, 0.45);
-  background: rgba(0, 212, 255, 0.08);
+  border-color: rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 
 .cctv-calibration-actions {
@@ -831,14 +831,14 @@ html:not([lang='en']) .cctv-controls .scene-btn {
 #cctv-adjust-btn.active {
   color: var(--accent);
   border-color: var(--accent);
-  background: rgba(0, 212, 255, 0.14);
+  background: rgba(var(--accent-rgb), 0.14);
 }
 
 #cctv-quality-chip {
   min-width: 90px;
-  --status-badge-border: rgba(0, 212, 255, 0.2);
-  --status-badge-color: #8fe7ff;
-  --status-badge-background: rgba(0, 212, 255, 0.08);
+  --status-badge-border: rgba(var(--accent-rgb), 0.24);
+  --status-badge-color: var(--accent-bright, #5ce0af);
+  --status-badge-background: rgba(var(--accent-rgb), 0.1);
 }
 
 #cctv-quality-chip[data-cal-badge='calibrated'] {
@@ -896,8 +896,8 @@ html:not([lang='en']) .cctv-controls .scene-btn {
   font-size: 10px;
   letter-spacing: 0.7px;
   line-height: 1.45;
-  color: #a8f7ff;
-  text-shadow: 0 0 10px rgba(0, 212, 255, 0.18);
+  color: var(--accent-bright, #5ce0af);
+  text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.18);
 }
 
 html:not([lang='en']) .cctv-cal-readout {

@@ -12,12 +12,11 @@ import {
 import {
   validateUserCode,
   getDestinationsForPassword,
-  getActivePassword,
   setActivePassword,
   getSharedUserCode,
-  setSharedUserCode,
   addCustomDestination,
   syncDestinationsToServer,
+  remoteApiRequest,
 } from './customDestinations.js';
 import { CITY_POIS } from './cityPois.js';
 import { voiceLayerAliasMap } from './voice/layerManifest.js';
@@ -161,17 +160,20 @@ export async function searchRemotePlaces(
 
   const parsedCoords = parseCoordinateQuery(trimmed);
   if (parsedCoords) {
+    const coordLabel = `${parsedCoords.lat.toFixed(5)}, ${parsedCoords.lon.toFixed(5)}`;
     pushResult({
       name: `Coordenadas (${parsedCoords.lat.toFixed(4)}, ${parsedCoords.lon.toFixed(4)})`,
-      subtitle: 'Coordenada directa',
+      subtitle: 'Coordenada directa · LOCATION',
       lat: parsedCoords.lat,
       lon: parsedCoords.lon,
-      height: 12000,
+      height: 1200,
+      exactCoord: true,
+      query: coordLabel,
     });
   }
 
   const lower = trimmed.toLowerCase();
-  for (const city of Object.values(CITY_POIS)) {
+  for (const [cityId, city] of Object.entries(CITY_POIS)) {
     const cityMatches = city.name.toLowerCase().includes(lower);
     if (cityMatches && city.pois?.length) {
       const primary = city.pois[0];
@@ -181,9 +183,14 @@ export async function searchRemotePlaces(
         lat: primary.lat,
         lon: primary.lon,
         height: Math.max(4500, (primary.alt || 1200) * 6),
+        cityId,
+        poiIndex: 0,
+        query: city.name,
       });
     }
-    for (const poi of city.pois || []) {
+    const pois = city.pois || [];
+    for (let poiIndex = 0; poiIndex < pois.length; poiIndex++) {
+      const poi = pois[poiIndex];
       if (poi.name.toLowerCase().includes(lower)) {
         pushResult({
           name: poi.name,
@@ -191,6 +198,9 @@ export async function searchRemotePlaces(
           lat: poi.lat,
           lon: poi.lon,
           height: Math.max(2500, (poi.alt || 600) * 4),
+          cityId,
+          poiIndex,
+          query: poi.name,
         });
       }
     }
@@ -198,6 +208,7 @@ export async function searchRemotePlaces(
 
   if (fetchImpl && trimmed.length >= 2 && !parsedCoords) {
     const base = normalizeServerUrl(serverUrl);
+    let geocodeItemsAdded = 0;
     try {
       const res = await fetchImpl(
         `${base}/api/geocode?q=${encodeURIComponent(trimmed)}&limit=6`,
@@ -222,11 +233,17 @@ export async function searchRemotePlaces(
             lat,
             lon,
             height: 14000,
+            query: display,
           });
+          geocodeItemsAdded += 1;
         }
       }
     } catch {
-      // Fallback to Photon public geocoder if local proxy fails
+      // Fallback below when local proxy throws
+    }
+
+    if (geocodeItemsAdded === 0) {
+      // Fallback to Photon public geocoder if /api/geocode fails, errors, or returns empty
       try {
         const photonRes = await fetchImpl(
           `https://photon.komoot.io/api/?q=${encodeURIComponent(trimmed)}&limit=5`,
@@ -238,6 +255,10 @@ export async function searchRemotePlaces(
             const coords = feat?.geometry?.coordinates;
             if (!Array.isArray(coords) || coords.length < 2) continue;
             const props = feat.properties || {};
+            const fullQuery =
+              [props.name, props.city, props.country]
+                .filter(Boolean)
+                .join(', ') || trimmed;
             pushResult({
               name: props.name || props.city || trimmed,
               subtitle:
@@ -246,6 +267,7 @@ export async function searchRemotePlaces(
               lat: Number(coords[1]),
               lon: Number(coords[0]),
               height: 14000,
+              query: fullQuery,
             });
           }
         }
@@ -280,7 +302,10 @@ async function readRemoteResponseJson(response, operation) {
     const status = [response.status, response.statusText]
       .filter(Boolean)
       .join(' ');
-    throw new Error(data?.error || `${operation}: ${status}`);
+    const err = new Error(data?.error || `${operation}: ${status}`);
+    err.status = response.status;
+    err.code = data?.code;
+    throw err;
   }
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw new Error(
@@ -291,7 +316,7 @@ async function readRemoteResponseJson(response, operation) {
 }
 
 /**
- * Send a remote command to the server session via POST.
+ * Send a remote command to the authenticated server session via POST.
  */
 export async function sendRemoteCommand({
   serverUrl = '',
@@ -299,6 +324,8 @@ export async function sendRemoteCommand({
   deviceName = 'Mobile Device',
   deviceType = 'mobile',
   password = '',
+  profile,
+  authToken = '',
   command,
   fetchImpl = typeof fetch !== 'undefined' ? fetch : null,
 }) {
@@ -310,15 +337,20 @@ export async function sendRemoteCommand({
     sessionName,
     deviceType,
     deviceName,
-    password,
+    profile: profile ?? password ?? '',
     command,
   };
 
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+  if (authToken) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
+
   const response = await fetchImpl(endpoint, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -332,6 +364,8 @@ export async function fetchRemoteSession({
   serverUrl = '',
   sessionName = 'default',
   password = '',
+  profile,
+  authToken = '',
   since = 0,
   fetchImpl = typeof fetch !== 'undefined' ? fetch : null,
 }) {
@@ -341,12 +375,18 @@ export async function fetchRemoteSession({
     session: sessionName,
     since: String(since),
   });
-  if (password) query.set('password', password);
+  const profileKey = profile ?? password ?? '';
+  if (profileKey) query.set('profile', profileKey);
   const endpoint = `${base}/api/remote/session?${query.toString()}`;
+
+  const headers = { Accept: 'application/json' };
+  if (authToken) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
 
   const response = await fetchImpl(endpoint, {
     method: 'GET',
-    headers: { Accept: 'application/json' },
+    headers,
   });
 
   return readRemoteResponseJson(response, 'Failed to fetch session');
@@ -411,14 +451,42 @@ export function executeRemoteCommand(
     }
 
     case 'fly_to_location': {
+      const locationNav = styleManager?._locationNavigation;
+      const requestedCityId =
+        (args.cityId && CITY_POIS[args.cityId] && args.cityId) ||
+        (args.locationId && CITY_POIS[args.locationId] && args.locationId) ||
+        null;
+      if (requestedCityId && locationNav?.selectPresetLocation) {
+        const poiIndex = Number.isInteger(args.poiIndex)
+          ? args.poiIndex
+          : null;
+        if (locationNav.selectPresetLocation(requestedCityId, poiIndex)) {
+          return true;
+        }
+      }
+
+      const namedQuery = String(args.query || args.locationId || '').trim();
+      if (namedQuery && !args.exactCoord) {
+        if (
+          args.preferVoiceOnly !== true &&
+          locationNav?.searchLocationQuery?.(namedQuery)
+        ) {
+          return true;
+        }
+        if (typeof voiceCommands?.runner === 'function') {
+          void Promise.resolve(voiceCommands.runner('fly_to_location', args));
+          return true;
+        }
+      }
+
       const hasNumericCoords =
         Number.isFinite(Number(args.lat ?? args.latitude)) &&
         Number.isFinite(Number(args.lon ?? args.longitude)) &&
         (args.lat !== undefined || args.latitude !== undefined) &&
         (args.lon !== undefined || args.longitude !== undefined);
 
-      if (!hasNumericCoords && (args.query || args.locationId)) {
-        if (typeof voiceCommands?.runner === 'function') {
+      if (!hasNumericCoords) {
+        if (namedQuery && typeof voiceCommands?.runner === 'function') {
           void Promise.resolve(voiceCommands.runner('fly_to_location', args));
           return true;
         }
@@ -427,12 +495,32 @@ export function executeRemoteCommand(
 
       const lat = Number(args.lat ?? args.latitude ?? 0);
       const lon = Number(args.lon ?? args.longitude ?? 0);
-      const height = Math.max(100, Number(args.height ?? 18000));
+      const range = Math.max(
+        150,
+        Math.min(20000000, Number(args.rangeM ?? args.height ?? 1400)),
+      );
+
+      if (
+        locationNav?.flyToCoordinates &&
+        typeof viewer?.camera?.flyToBoundingSphere === 'function'
+      ) {
+        if (
+          locationNav.flyToCoordinates(lat, lon, {
+            range,
+            pitch: Number(args.pitch ?? -35),
+            heading: Number(args.heading ?? 0),
+            label: args.label || namedQuery || null,
+            ground: app?.surfaceServices?.groundFloor || null,
+          })
+        ) {
+          return true;
+        }
+      }
 
       if (viewer?.camera?.flyTo) {
         holdContinuousRender('remote-fly');
         governorRequestRender();
-        const destination = degreesToCartesian3(lon, lat, height);
+        const destination = degreesToCartesian3(lon, lat, range);
         viewer.camera.flyTo({
           destination,
           duration: 1.9,
@@ -591,6 +679,22 @@ export function executeRemoteCommand(
       return true;
     }
 
+    case 'toggle_frames_paused': {
+      if (typeof styleManager?.toggleFramesPaused === 'function') {
+        styleManager.toggleFramesPaused();
+        return true;
+      }
+      return false;
+    }
+
+    case 'set_frames_paused': {
+      if (typeof styleManager?.setFramesPaused === 'function') {
+        styleManager.setFramesPaused(Boolean(args.paused));
+        return true;
+      }
+      return false;
+    }
+
     default: {
       if (
         REMOTE_GEMINI_DELEGATED_ACTIONS.has(action) &&
@@ -612,6 +716,8 @@ export function startPcRemoteListener({
   serverUrl = '',
   pollInterval = 900,
   onCommand,
+  getAuthToken,
+  onAuthChange,
   fetchImpl = typeof fetch !== 'undefined' ? fetch : null,
   app = typeof window !== 'undefined' ? window.__godsEyeView : null,
 } = {}) {
@@ -619,6 +725,7 @@ export function startPcRemoteListener({
   let lastActivityTime = Date.now();
   let stopped = false;
   let timerId = null;
+  let unsubscribeAuth = null;
 
   function getCurrentSession() {
     if (typeof sessionName === 'function') {
@@ -635,28 +742,29 @@ export function startPcRemoteListener({
     return getSharedUserCode();
   }
 
+  function scheduleNext(delayMs) {
+    if (stopped) return;
+    if (timerId) clearTimeout(timerId);
+    timerId = setTimeout(poll, delayMs);
+  }
+
   async function poll() {
     if (stopped) return;
+    const authToken = typeof getAuthToken === 'function' ? getAuthToken() : '';
+    if (!authToken) {
+      scheduleNext(2000);
+      return;
+    }
+
     try {
       const activeSession = getCurrentSession();
       const data = await fetchRemoteSession({
         serverUrl,
         sessionName: activeSession,
+        authToken,
         since: lastTimestamp,
         fetchImpl,
       });
-
-      if (
-        data?.sessionName &&
-        data.sessionName !== activeSession &&
-        typeof setSharedUserCode === 'function'
-      ) {
-        try {
-          setSharedUserCode(data.sessionName);
-        } catch {
-          // ignore invalid auto-discovered names
-        }
-      }
 
       if (data?.commands?.length) {
         lastActivityTime = Date.now();
@@ -688,16 +796,26 @@ export function startPcRemoteListener({
           nextDelay = Math.max(pollInterval, 2200);
         }
 
-        timerId = setTimeout(poll, nextDelay);
+        scheduleNext(nextDelay);
       }
     }
   }
 
-  timerId = setTimeout(poll, pollInterval);
+  if (typeof onAuthChange === 'function') {
+    unsubscribeAuth = onAuthChange((snap) => {
+      if (snap?.token) {
+        lastActivityTime = Date.now();
+        scheduleNext(150);
+      }
+    });
+  }
+
+  scheduleNext(pollInterval);
 
   return () => {
     stopped = true;
     if (timerId) clearTimeout(timerId);
+    if (unsubscribeAuth) unsubscribeAuth();
   };
 }
 
@@ -738,22 +856,27 @@ export function mountMobileRemoteUI(
 
   const params = new URLSearchParams(window.location.search);
   const urlSession = params.get('session') || params.get('userCode') || '';
-  const urlPass = params.get('pass') ?? params.get('password');
+  const urlPairToken = params.get('pair') || '';
   const urlServer = params.get('server') || '';
 
   const validUrlSession = validateUserCode(urlSession).valid
-    ? urlSession.trim()
+    ? urlSession.trim().toLowerCase()
     : '';
+
+  // Scrub sensitive one-time pairing tokens from address bar / browser history immediately
+  if ((urlPairToken || params.has('pass') || params.has('password')) && window.history?.replaceState) {
+    const cleanParams = new URLSearchParams(window.location.search);
+    cleanParams.delete('pair');
+    cleanParams.delete('pass');
+    cleanParams.delete('password');
+    const qs = cleanParams.toString();
+    const cleanUrl = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash || ''}`;
+    window.history.replaceState({}, '', cleanUrl);
+  }
 
   if (validUrlSession) {
     localStorage.setItem('gev_shared_user_code', validUrlSession);
     localStorage.setItem('gev_remote_user', validUrlSession);
-    localStorage.setItem('gev_remote_session', validUrlSession);
-  }
-  if (urlPass !== null) {
-    const cleanUrlPass = String(urlPass).trim().toLowerCase();
-    localStorage.setItem('gev_active_preset_password', cleanUrlPass);
-    setActivePassword(cleanUrlPass);
   }
   if (urlServer) {
     localStorage.setItem('gev_remote_server', normalizeServerUrl(urlServer));
@@ -766,14 +889,29 @@ export function mountMobileRemoteUI(
     initialOptions.deviceName ||
     'user1234';
   let sessionName = validUrlSession || userName || 'user1234';
+  let deviceLabel =
+    localStorage.getItem('gev_remote_device_label') || 'Móvil Remoto';
   let serverUrl =
     localStorage.getItem('gev_remote_server') ||
     initialOptions.serverUrl ||
     window.location.origin;
   let activePassword =
-    urlPass !== null
-      ? String(urlPass).trim().toLowerCase()
-      : localStorage.getItem('gev_active_preset_password') || '';
+    localStorage.getItem('gev_active_preset_password') || '';
+
+  // Bearer token and session role held strictly in JS memory (never localStorage)
+  let authToken = '';
+  let authRole = 'operator';
+  let currentDeviceId = '';
+  let pendingApproval = false;
+  let pendingPollTimer = null;
+  let configAuthMode = 'pin'; // 'pin' | 'account'
+
+  // Control (SQL Monitor) mode state
+  let monitorTab = 'activity'; // 'activity' | 'devices' | 'audit'
+  let monitorData = null;
+  let monitorPollTimer = null;
+  let monitorAutoRefresh = true;
+
   let customLocations = getDestinationsForPassword(activePassword);
   let activeTab = 'camera';
   let trackpadMode = 'pan';
@@ -782,6 +920,8 @@ export function mountMobileRemoteUI(
   let searchQuery = '';
   let searchTimer = null;
   let searchAbort = null;
+  let activeRemoteCityId = null;
+  let activeRemotePoiIndex = null;
   const aiMessages = [];
   const aiHistory = [];
   let aiBusy = false;
@@ -801,27 +941,118 @@ export function mountMobileRemoteUI(
       .replace(/"/g, '&quot;');
   }
 
-  function renderConfigView() {
+  function stopPendingApprovalPoll() {
+    if (pendingPollTimer) {
+      clearInterval(pendingPollTimer);
+      pendingPollTimer = null;
+    }
+  }
+
+  function stopMonitorPoll() {
+    if (monitorPollTimer) {
+      clearInterval(monitorPollTimer);
+      monitorPollTimer = null;
+    }
+  }
+
+  function clearMemorySession() {
+    authToken = '';
+    authRole = 'operator';
+    currentDeviceId = '';
+    pendingApproval = false;
+    monitorData = null;
+    stopPendingApprovalPoll();
+    stopMonitorPoll();
+  }
+
+  function renderPendingApprovalView() {
+    stopPendingApprovalPoll();
     root.innerHTML = `
       <div class="rem-setup-wrap">
         <header class="rem-setup-header">
-          <div class="rem-brand-kicker">Ray's Eye View</div>
-          <h1 class="rem-setup-title">Control Remoto Móvil</h1>
+          <div class="rem-brand-kicker">Ray's Eye View · Seguridad SQL</div>
+          <h1 class="rem-setup-title">Esperando aprobación</h1>
+        </header>
+        <section class="rem-card rem-stack rem-pending-card">
+          <span class="material-symbols-outlined rem-pending-icon" aria-hidden="true">lock</span>
           <p class="rem-setup-desc">
-            Vincula tu teléfono con la sesión de escritorio o escanea el código QR desde el botón móvil en tu PC.
+            Tu dispositivo <strong class="rem-mono">${escapeHtml(deviceLabel)}</strong> se vinculó correctamente a <strong class="rem-mono">@${escapeHtml(userName)}</strong>, pero el administrador del PC requiere aprobación manual.
+          </p>
+          <p class="rem-card-sub">
+            Abre "Control Móvil · SQL" en el PC y pulsa <strong>Aprobar</strong> en este dispositivo.
+          </p>
+          <button id="rem-btn-cancel-pending" type="button" class="rem-btn rem-btn-surface">Cancelar</button>
+        </section>
+      </div>
+    `;
+    root.querySelector('#rem-btn-cancel-pending')?.addEventListener('click', () => {
+      clearMemorySession();
+      renderConfigView();
+    });
+
+    pendingPollTimer = setInterval(async () => {
+      if (!authToken) {
+        stopPendingApprovalPoll();
+        return;
+      }
+      try {
+        const me = await remoteApiRequest('/auth/me', {
+          serverUrl,
+          method: 'GET',
+          authToken,
+        });
+        if (!me.pendingApproval && me.device?.status === 'approved') {
+          pendingApproval = false;
+          authRole = me.session?.role || me.device?.role || 'operator';
+          stopPendingApprovalPoll();
+          renderControlView();
+        }
+      } catch (err) {
+        if (err.status === 401 || err.status === 403) {
+          clearMemorySession();
+          renderConfigView('El administrador rechazó o revocó el acceso de este dispositivo.');
+        }
+      }
+    }, 1800);
+  }
+
+  function renderConfigView(initialError = '') {
+    stopPendingApprovalPoll();
+    stopMonitorPoll();
+    root.innerHTML = `
+      <div class="rem-setup-wrap">
+        <header class="rem-setup-header">
+          <div class="rem-brand-kicker">Ray's Eye View · SQL Remoto</div>
+          <h1 class="rem-setup-title">Control Remoto Seguro</h1>
+          <p class="rem-setup-desc">
+            Escanea el QR de un solo uso desde tu PC o ingresa con el PIN temporal de 6 dígitos o tu cuenta SQL.
           </p>
         </header>
 
         <section class="rem-card rem-stack">
-          <div class="rem-field">
-            <label for="gev-input-user" class="rem-label">Código de sesión PC (mín. 4 caracteres)</label>
-            <input id="gev-input-user" type="text" class="rem-input rem-mono" value="${escapeHtml(userName)}" placeholder="Ej. user1234" autocomplete="off" />
-            <div id="gev-user-error" class="rem-error-text" hidden></div>
+          <div class="rem-auth-tabs" role="tablist">
+            <button type="button" class="rem-seg-btn ${configAuthMode === 'pin' ? 'is-active' : ''}" data-rem-auth-mode="pin">PIN de 6 dígitos</button>
+            <button type="button" class="rem-seg-btn ${configAuthMode === 'account' ? 'is-active' : ''}" data-rem-auth-mode="account">Cuenta SQL</button>
           </div>
 
           <div class="rem-field">
-            <label for="gev-input-password" class="rem-label">Clave de perfil de destinos (opcional)</label>
-            <input id="gev-input-password" type="text" class="rem-input" value="${escapeHtml(activePassword)}" placeholder="Ej. alfa1234, tactical2026, ciudades99" autocomplete="off" />
+            <label for="gev-input-user" class="rem-label">Usuario PC (mín. 4 caracteres)</label>
+            <input id="gev-input-user" type="text" class="rem-input rem-mono" value="${escapeHtml(userName)}" placeholder="Ej. operador1" autocomplete="username" />
+          </div>
+
+          <div class="rem-field" id="rem-pin-field" ${configAuthMode === 'pin' ? '' : 'hidden'}>
+            <label for="gev-input-pin" class="rem-label">PIN temporal de 6 dígitos (mostrado en el PC)</label>
+            <input id="gev-input-pin" type="text" inputmode="numeric" maxlength="6" class="rem-input rem-mono" placeholder="000000" autocomplete="one-time-code" />
+          </div>
+
+          <div class="rem-field" id="rem-account-pass-field" ${configAuthMode === 'account' ? '' : 'hidden'}>
+            <label for="gev-input-account-password" class="rem-label">Contraseña de la cuenta SQL</label>
+            <input id="gev-input-account-password" type="password" class="rem-input" placeholder="••••••••" autocomplete="current-password" />
+          </div>
+
+          <div class="rem-field">
+            <label for="gev-input-device-label" class="rem-label">Nombre de este dispositivo</label>
+            <input id="gev-input-device-label" type="text" class="rem-input" value="${escapeHtml(deviceLabel)}" placeholder="Ej. iPhone Control" autocomplete="off" />
           </div>
 
           <div class="rem-field">
@@ -829,16 +1060,32 @@ export function mountMobileRemoteUI(
             <input id="gev-input-server" type="text" class="rem-input rem-mono" value="${escapeHtml(serverUrl)}" placeholder="https://tu-tunel.devtunnels.ms" autocomplete="off" />
           </div>
 
+          <div id="gev-user-error" class="rem-error-text" ${initialError ? '' : 'hidden'}>${escapeHtml(initialError)}</div>
+
           <button id="gev-btn-enter" type="button" class="rem-btn rem-btn-primary rem-btn-lg">
-            Conectar al control
+            Conectar con autenticación
           </button>
         </section>
       </div>
     `;
 
+    root.querySelectorAll('[data-rem-auth-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        configAuthMode = btn.getAttribute('data-rem-auth-mode') === 'account' ? 'account' : 'pin';
+        root.querySelectorAll('[data-rem-auth-mode]').forEach((b) => {
+          b.classList.toggle('is-active', b === btn);
+        });
+        root.querySelector('#rem-pin-field').hidden = configAuthMode !== 'pin';
+        root.querySelector('#rem-account-pass-field').hidden = configAuthMode !== 'account';
+      });
+    });
+
     root.querySelector('#gev-btn-enter').addEventListener('click', async () => {
-      const u = root.querySelector('#gev-input-user').value.trim();
-      const p = root.querySelector('#gev-input-password').value.trim();
+      const btn = root.querySelector('#gev-btn-enter');
+      const u = root.querySelector('#gev-input-user').value.trim().toLowerCase();
+      const pinVal = root.querySelector('#gev-input-pin')?.value.trim() || '';
+      const passVal = root.querySelector('#gev-input-account-password')?.value || '';
+      const devVal = root.querySelector('#gev-input-device-label')?.value.trim() || 'Móvil Remoto';
       const srv =
         root.querySelector('#gev-input-server').value.trim() ||
         window.location.origin;
@@ -853,51 +1100,532 @@ export function mountMobileRemoteUI(
 
       userName = u;
       sessionName = u;
-      activePassword = p.toLowerCase();
+      deviceLabel = devVal;
       serverUrl = normalizeServerUrl(srv);
 
       localStorage.setItem('gev_shared_user_code', userName);
       localStorage.setItem('gev_remote_user', userName);
-      localStorage.setItem('gev_remote_session', sessionName);
+      localStorage.setItem('gev_remote_device_label', deviceLabel);
       localStorage.setItem('gev_remote_server', serverUrl);
-      localStorage.setItem('gev_active_preset_password', activePassword);
 
-      customLocations = getDestinationsForPassword(activePassword);
+      errEl.hidden = true;
+      btn.disabled = true;
+      btn.textContent = 'Autenticando...';
+
       try {
-        const sessionData = await fetchRemoteSession({
-          serverUrl,
-          sessionName,
-          password: activePassword,
-        });
-        if (sessionData?.customLocations?.length) {
-          customLocations = sessionData.customLocations;
+        let authRes;
+        if (configAuthMode === 'pin') {
+          authRes = await remoteApiRequest('/pairing/claim', {
+            serverUrl,
+            method: 'POST',
+            authToken: '',
+            body: {
+              username: userName,
+              pin: pinVal,
+              deviceName: deviceLabel,
+              deviceType: 'mobile',
+            },
+          });
+        } else {
+          authRes = await remoteApiRequest('/auth/login', {
+            serverUrl,
+            method: 'POST',
+            authToken: '',
+            body: {
+              username: userName,
+              password: passVal,
+              deviceName: deviceLabel,
+              deviceType: 'mobile',
+            },
+          });
         }
-      } catch {
-        // Fallback to local preset
-      }
 
-      renderControlView();
+        authToken = authRes.token || '';
+        authRole = authRes.device?.role || authRes.user?.role || 'operator';
+        currentDeviceId = authRes.device?.id || '';
+        pendingApproval = Boolean(authRes.pendingApproval);
+
+        if (pendingApproval) {
+          renderPendingApprovalView();
+          return;
+        }
+
+        try {
+          const sessionData = await fetchRemoteSession({
+            serverUrl,
+            sessionName,
+            profile: activePassword,
+            authToken,
+          });
+          if (sessionData?.customLocations?.length) {
+            customLocations = sessionData.customLocations;
+          }
+        } catch {
+          // Use local preset if server profile is empty
+        }
+
+        renderControlView();
+      } catch (err) {
+        errEl.hidden = false;
+        errEl.textContent = err.message || 'No se pudo iniciar sesión.';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Conectar con autenticación';
+      }
     });
   }
 
+  function formatMobileRoleText(role) {
+    if (role === 'admin') return 'Admin';
+    if (role === 'viewer') return 'Control';
+    return 'Operador';
+  }
+
+  const CONTROL_EVENT_LABELS = {
+    user_registered: 'Cuenta SQL creada',
+    login_success: 'Inicio de sesión',
+    login_failed: 'Intento fallido',
+    pairing_created: 'Código QR/PIN generado',
+    pairing_claimed: 'Dispositivo vinculado',
+    pairing_rejected: 'Vinculación rechazada',
+    device_approved: 'Dispositivo aprobado',
+    device_revoked: 'Acceso revocado',
+    device_role_changed: 'Rol actualizado',
+    device_removed: 'Dispositivo eliminado',
+    password_changed: 'Contraseña actualizada',
+    logout: 'Sesión cerrada',
+    command_denied: 'Comando bloqueado (Control)',
+  };
+
+  function formatRelTimeMobile(ts) {
+    if (!ts) return '—';
+    const diffSec = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (diffSec < 10) return 'ahora';
+    if (diffSec < 60) return `hace ${diffSec}s`;
+    const diffMin = Math.round(diffSec / 60);
+    if (diffMin < 60) return `hace ${diffMin}m`;
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function formatControlAuditDetail(ev) {
+    const detail = ev?.detail && typeof ev.detail === 'object' ? ev.detail : {};
+    const parts = [];
+    if (ev?.actorName) parts.push(ev.actorName);
+    if (detail.deviceName && detail.deviceName !== ev.actorName) {
+      parts.push(detail.deviceName);
+    }
+    if (ev?.eventType === 'device_role_changed' && detail.to) {
+      parts.push(`→ ${formatMobileRoleText(detail.to)}`);
+    } else if (ev?.eventType === 'pairing_created' && detail.roleGrant) {
+      parts.push(`rol ${formatMobileRoleText(detail.roleGrant)}`);
+    }
+    return parts.join(' · ');
+  }
+
+  function renderSqlControlMonitorView() {
+    stopPendingApprovalPoll();
+    stopMonitorPoll();
+
+    root.innerHTML = `
+      <header class="rem-topbar">
+        <div class="rem-topbar-id">
+          <div class="rem-topbar-brand">Ray's Eye View · Control</div>
+          <div class="rem-topbar-meta">
+            <span><strong class="rem-mono">@${escapeHtml(userName)}</strong></span>
+            <span class="rem-role-badge is-viewer">Control</span>
+            <span aria-hidden="true">·</span>
+            <span>Monitor SQLite</span>
+          </div>
+        </div>
+        <div class="rem-row-gap">
+          <button id="rem-ctrl-refresh-btn" type="button" class="rem-icon-btn" aria-label="Actualizar monitor SQL">
+            <span class="material-symbols-outlined" aria-hidden="true">sync</span>
+          </button>
+          <button id="gev-btn-settings" type="button" class="rem-icon-btn" aria-label="Ajustes de conexión">
+            <span class="material-symbols-outlined" aria-hidden="true">settings</span>
+          </button>
+          <button id="gev-btn-logout" type="button" class="rem-icon-btn" aria-label="Cerrar sesión remota">
+            <span class="material-symbols-outlined" aria-hidden="true">logout</span>
+          </button>
+        </div>
+      </header>
+
+      <div id="gev-status-log" class="rem-status-bar" role="status" aria-live="polite">
+        Monitor SQL en vivo conectado como Control.
+      </div>
+
+      <main class="rem-main">
+        <!-- TAB: ACTIVIDAD SQL EN VIVO -->
+        <section class="rem-panel ${monitorTab === 'activity' ? 'is-active' : ''}" data-ctrl-panel="activity">
+          <div class="rem-ctrl-banner">
+            <span class="material-symbols-outlined" aria-hidden="true">verified_user</span>
+            <span>Modo <strong>Control</strong> · Visualizando cambios, dispositivos y comandos del servidor SQL en tiempo real.</span>
+          </div>
+
+          <div id="rem-ctrl-kpi" class="rem-kpi-grid">
+            <div class="rem-kpi-card"><span class="rem-kpi-label">Dispositivos</span><strong class="rem-kpi-value">—</strong></div>
+            <div class="rem-kpi-card"><span class="rem-kpi-label">Pendientes</span><strong class="rem-kpi-value">—</strong></div>
+            <div class="rem-kpi-card"><span class="rem-kpi-label">Eventos SQL</span><strong class="rem-kpi-value">—</strong></div>
+            <div class="rem-kpi-card"><span class="rem-kpi-label">Comandos</span><strong class="rem-kpi-value">—</strong></div>
+          </div>
+
+          <div class="rem-card rem-stack">
+            <div class="rem-card-head">
+              <div>
+                <h2 class="rem-card-title">Actividad reciente del servidor SQL</h2>
+                <p class="rem-card-sub">Cambios de dispositivos, sesiones y órdenes remotas registradas</p>
+              </div>
+              <button id="rem-ctrl-auto-btn" type="button" class="rem-btn rem-btn-surface rem-btn-sm ${monitorAutoRefresh ? 'is-on' : ''}" aria-pressed="${monitorAutoRefresh ? 'true' : 'false'}">
+                ${monitorAutoRefresh ? 'Auto: ON' : 'Auto: OFF'}
+              </button>
+            </div>
+            <div id="rem-ctrl-activity-list" class="rem-result-list">
+              <div class="rem-empty">Cargando actividad del servidor SQL...</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB: DISPOSITIVOS EN SQL -->
+        <section class="rem-panel ${monitorTab === 'devices' ? 'is-active' : ''}" data-ctrl-panel="devices">
+          <div class="rem-card rem-stack">
+            <div class="rem-card-head">
+              <div>
+                <h2 class="rem-card-title">Dispositivos vinculados</h2>
+                <p class="rem-card-sub">Estado, rol asignado y última actividad en SQLite</p>
+              </div>
+              <button id="rem-ctrl-sync-dev" type="button" class="rem-btn rem-btn-surface rem-btn-sm">
+                <span class="material-symbols-outlined" aria-hidden="true">sync</span>
+                <span>Actualizar</span>
+              </button>
+            </div>
+            <div id="rem-ctrl-devices-list" class="rem-result-list">
+              <div class="rem-empty">Consultando dispositivos en SQLite...</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB: AUDITORÍA Y PERFILES SQL -->
+        <section class="rem-panel ${monitorTab === 'audit' ? 'is-active' : ''}" data-ctrl-panel="audit">
+          <div class="rem-card rem-stack">
+            <div>
+              <h2 class="rem-card-title">Perfiles de destinos en SQLite</h2>
+              <p class="rem-card-sub">Listas almacenadas para esta cuenta</p>
+            </div>
+            <div id="rem-ctrl-profiles" class="rem-chip-row">
+              <span class="rem-empty">Cargando perfiles...</span>
+            </div>
+          </div>
+
+          <div class="rem-card rem-stack">
+            <div>
+              <h2 class="rem-card-title">Registro de auditoría y comandos SQL</h2>
+              <p class="rem-card-sub">Historial cronológico directo desde la base de datos</p>
+            </div>
+            <div id="rem-ctrl-audit-list" class="rem-result-list">
+              <div class="rem-empty">Cargando auditoría SQL...</div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <nav class="rem-bottom-nav rem-bottom-nav-3" aria-label="Panel Control SQL">
+        <button type="button" class="rem-nav-btn ${monitorTab === 'activity' ? 'is-active' : ''}" data-ctrl-tab="activity">
+          <span class="material-symbols-outlined" aria-hidden="true">timeline</span>
+          <span>Actividad</span>
+        </button>
+        <button type="button" class="rem-nav-btn ${monitorTab === 'devices' ? 'is-active' : ''}" data-ctrl-tab="devices">
+          <span class="material-symbols-outlined" aria-hidden="true">devices</span>
+          <span>Dispositivos</span>
+        </button>
+        <button type="button" class="rem-nav-btn ${monitorTab === 'audit' ? 'is-active' : ''}" data-ctrl-tab="audit">
+          <span class="material-symbols-outlined" aria-hidden="true">radar</span>
+          <span>Servidor SQL</span>
+        </button>
+      </nav>
+    `;
+
+    const statusEl = root.querySelector('#gev-status-log');
+    function setMonitorStatus(text, isError = false) {
+      if (!statusEl) return;
+      statusEl.textContent = text;
+      statusEl.classList.toggle('is-error', isError);
+    }
+
+    function paintMonitorData() {
+      const snap = monitorData;
+      if (!snap) return;
+      const devices = Array.isArray(snap.devices) ? snap.devices : [];
+      const auditLogs = Array.isArray(snap.auditLogs) ? snap.auditLogs : [];
+      const commands = Array.isArray(snap.commands) ? snap.commands : [];
+      const profiles = Array.isArray(snap.destinationProfiles)
+        ? snap.destinationProfiles
+        : [];
+
+      const approvedCount = devices.filter((d) => d.status === 'approved').length;
+      const pendingCount = devices.filter((d) => d.status === 'pending').length;
+
+      const kpiEl = root.querySelector('#rem-ctrl-kpi');
+      if (kpiEl) {
+        kpiEl.innerHTML = `
+          <div class="rem-kpi-card"><span class="rem-kpi-label">Activos</span><strong class="rem-kpi-value">${approvedCount}</strong></div>
+          <div class="rem-kpi-card"><span class="rem-kpi-label">Pendientes</span><strong class="rem-kpi-value ${pendingCount > 0 ? 'is-warn' : ''}">${pendingCount}</strong></div>
+          <div class="rem-kpi-card"><span class="rem-kpi-label">Cambios SQL</span><strong class="rem-kpi-value">${auditLogs.length}</strong></div>
+          <div class="rem-kpi-card"><span class="rem-kpi-label">Comandos</span><strong class="rem-kpi-value">${commands.length}</strong></div>
+        `;
+      }
+
+      const activityEl = root.querySelector('#rem-ctrl-activity-list');
+      if (activityEl) {
+        const combined = [
+          ...auditLogs.map((ev) => ({
+            kind: 'audit',
+            ts: ev.createdAt || 0,
+            title: CONTROL_EVENT_LABELS[ev.eventType] || ev.eventType,
+            meta: formatControlAuditDetail(ev) || ev.ipHint || 'local',
+          })),
+          ...commands.map((cmd) => ({
+            kind: 'cmd',
+            ts: cmd.timestamp || 0,
+            title: `Comando: ${String(cmd.action || '').replace(/_/g, ' ')}`,
+            meta: `${cmd.deviceName || 'Dispositivo'}`,
+          })),
+        ]
+          .sort((a, b) => b.ts - a.ts)
+          .slice(0, 35);
+
+        if (!combined.length) {
+          activityEl.innerHTML = `<div class="rem-empty">Sin cambios registrados en el servidor SQL todavía.</div>`;
+        } else {
+          activityEl.innerHTML = combined
+            .map(
+              (item) => `
+              <div class="rem-feed-item ${item.kind === 'audit' ? 'is-audit' : 'is-cmd'}">
+                <div class="rem-feed-main">
+                  <span class="rem-feed-badge">${item.kind === 'audit' ? 'SQL' : 'CMD'}</span>
+                  <div class="rem-result-info">
+                    <div class="rem-result-name">${escapeHtml(item.title)}</div>
+                    <div class="rem-result-meta">${escapeHtml(item.meta)}</div>
+                  </div>
+                </div>
+                <span class="rem-feed-time">${formatRelTimeMobile(item.ts)}</span>
+              </div>
+            `,
+            )
+            .join('');
+        }
+      }
+
+      const devicesEl = root.querySelector('#rem-ctrl-devices-list');
+      if (devicesEl) {
+        if (!devices.length) {
+          devicesEl.innerHTML = `<div class="rem-empty">No hay dispositivos registrados.</div>`;
+        } else {
+          devicesEl.innerHTML = devices
+            .map((dev) => {
+              const isSelf =
+                (currentDeviceId && dev.id === currentDeviceId) ||
+                (snap.device?.id && dev.id === snap.device.id);
+              const statusLabel =
+                dev.status === 'pending'
+                  ? 'Pendiente'
+                  : dev.status === 'revoked'
+                    ? 'Revocado'
+                    : 'Aprobado';
+              const statusClass =
+                dev.status === 'pending'
+                  ? 'is-pending'
+                  : dev.status === 'revoked'
+                    ? 'is-revoked'
+                    : '';
+              const icon = dev.deviceType === 'pc' ? 'devices' : 'smartphone';
+              return `
+                <div class="rem-feed-item">
+                  <div class="rem-feed-main">
+                    <span class="material-symbols-outlined rem-accent-icon" aria-hidden="true">${icon}</span>
+                    <div class="rem-result-info">
+                      <div class="rem-result-name">${escapeHtml(dev.deviceName)}${isSelf ? ' (Este equipo)' : ''}</div>
+                      <div class="rem-result-meta">${escapeHtml(formatMobileRoleText(dev.role))} · ${escapeHtml(dev.ipHint || 'local')} · ${formatRelTimeMobile(dev.lastSeen)}</div>
+                    </div>
+                  </div>
+                  <span class="rem-role-badge ${statusClass}">${statusLabel}</span>
+                </div>
+              `;
+            })
+            .join('');
+        }
+      }
+
+      const profilesEl = root.querySelector('#rem-ctrl-profiles');
+      if (profilesEl) {
+        if (!profiles.length) {
+          profilesEl.innerHTML = `<span class="rem-empty">Sin perfiles guardados en SQLite aún.</span>`;
+        } else {
+          profilesEl.innerHTML = profiles
+            .map(
+              (p) =>
+                `<span class="rem-chip">${escapeHtml(p.profileKey || 'General')} (${Number(p.count) || 0})</span>`,
+            )
+            .join('');
+        }
+      }
+
+      const auditEl = root.querySelector('#rem-ctrl-audit-list');
+      if (auditEl) {
+        if (!auditLogs.length) {
+          auditEl.innerHTML = `<div class="rem-empty">Consola de cambios SQL vacía.</div>`;
+        } else {
+          auditEl.innerHTML = auditLogs
+            .map((ev) => {
+              const label = CONTROL_EVENT_LABELS[ev.eventType] || ev.eventType;
+              const detail = formatControlAuditDetail(ev);
+              return `
+                <div class="rem-feed-item is-audit">
+                  <div class="rem-feed-main">
+                    <span class="rem-feed-badge">SQL</span>
+                    <div class="rem-result-info">
+                      <div class="rem-result-name">${escapeHtml(label)}</div>
+                      <div class="rem-result-meta">${escapeHtml(detail || ev.ipHint || 'local')}</div>
+                    </div>
+                  </div>
+                  <span class="rem-feed-time">${formatRelTimeMobile(ev.createdAt)}</span>
+                </div>
+              `;
+            })
+            .join('');
+        }
+      }
+    }
+
+    async function refreshSqlMonitor() {
+      if (!authToken) return;
+      try {
+        const snap = await remoteApiRequest('/monitor', {
+          serverUrl,
+          method: 'GET',
+          authToken,
+        });
+        if (snap.device?.id) currentDeviceId = snap.device.id;
+        if (snap.role && snap.role !== 'viewer') {
+          authRole = snap.role;
+          stopMonitorPoll();
+          renderControlView();
+          return;
+        }
+        monitorData = snap;
+        paintMonitorData();
+        const nowStr = new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
+        setMonitorStatus(`Monitor SQLite actualizado (${nowStr}) · Control`);
+      } catch (err) {
+        if (err.status === 401) {
+          clearMemorySession();
+          renderConfigView('Tu sesión remota fue revocada o expiró. Vuelve a vincularte.');
+          return;
+        }
+        setMonitorStatus(`Error al consultar SQL: ${err.message}`, true);
+      }
+    }
+
+    function switchMonitorTab(tab) {
+      monitorTab = tab;
+      root.querySelectorAll('[data-ctrl-panel]').forEach((el) => {
+        el.classList.toggle(
+          'is-active',
+          el.getAttribute('data-ctrl-panel') === tab,
+        );
+      });
+      root.querySelectorAll('[data-ctrl-tab]').forEach((el) => {
+        el.classList.toggle(
+          'is-active',
+          el.getAttribute('data-ctrl-tab') === tab,
+        );
+      });
+    }
+
+    root.querySelectorAll('[data-ctrl-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        switchMonitorTab(btn.getAttribute('data-ctrl-tab') || 'activity');
+      });
+    });
+
+    root.querySelector('#rem-ctrl-refresh-btn')?.addEventListener('click', () => {
+      void refreshSqlMonitor();
+    });
+    root.querySelector('#rem-ctrl-sync-dev')?.addEventListener('click', () => {
+      void refreshSqlMonitor();
+    });
+    root.querySelector('#rem-ctrl-auto-btn')?.addEventListener('click', (e) => {
+      monitorAutoRefresh = !monitorAutoRefresh;
+      const btn = e.currentTarget;
+      btn.classList.toggle('is-on', monitorAutoRefresh);
+      btn.setAttribute('aria-pressed', monitorAutoRefresh ? 'true' : 'false');
+      btn.textContent = monitorAutoRefresh ? 'Auto: ON' : 'Auto: OFF';
+      stopMonitorPoll();
+      if (monitorAutoRefresh) {
+        monitorPollTimer = setInterval(refreshSqlMonitor, 2500);
+      }
+    });
+
+    root.querySelector('#gev-btn-settings')?.addEventListener('click', () => {
+      stopMonitorPoll();
+      renderConfigView();
+    });
+    root.querySelector('#gev-btn-logout')?.addEventListener('click', async () => {
+      try {
+        if (authToken) {
+          await remoteApiRequest('/auth/logout', {
+            serverUrl,
+            method: 'POST',
+            authToken,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+      clearMemorySession();
+      renderConfigView('Sesión remota cerrada.');
+    });
+
+    if (monitorData) paintMonitorData();
+    void refreshSqlMonitor();
+    if (monitorAutoRefresh) {
+      monitorPollTimer = setInterval(refreshSqlMonitor, 2500);
+    }
+  }
+
   function renderControlView() {
+    stopMonitorPoll();
+    if (authRole === 'viewer') {
+      renderSqlControlMonitorView();
+      return;
+    }
+    const isViewer = false;
     root.innerHTML = `
       <header class="rem-topbar">
         <div class="rem-topbar-id">
           <div class="rem-topbar-brand">Ray's Eye View</div>
           <div class="rem-topbar-meta">
-            <span>Sesión <strong class="rem-mono">${escapeHtml(userName)}</strong></span>
+            <span><strong class="rem-mono">@${escapeHtml(userName)}</strong></span>
+            <span class="rem-role-badge">${escapeHtml(formatMobileRoleText(authRole))}</span>
             <span aria-hidden="true">·</span>
             <span>Perfil <strong id="gev-active-pass-badge">${escapeHtml(activePassword || 'General')}</strong></span>
           </div>
         </div>
-        <button id="gev-btn-settings" type="button" class="rem-icon-btn" aria-label="Ajustes de conexión">
-          <span class="material-symbols-outlined" aria-hidden="true">settings</span>
-        </button>
+        <div class="rem-row-gap">
+          <button id="gev-btn-settings" type="button" class="rem-icon-btn" aria-label="Ajustes de conexión">
+            <span class="material-symbols-outlined" aria-hidden="true">settings</span>
+          </button>
+          <button id="gev-btn-logout" type="button" class="rem-icon-btn" aria-label="Cerrar sesión remota">
+            <span class="material-symbols-outlined" aria-hidden="true">logout</span>
+          </button>
+        </div>
       </header>
 
       <div id="gev-status-log" class="rem-status-bar" role="status" aria-live="polite">
-        Listo para controlar la pantalla principal.
+        Conectado de forma segura por SQL + Bearer.
       </div>
 
       <main class="rem-main">
@@ -953,19 +1681,22 @@ export function mountMobileRemoteUI(
           </div>
         </section>
 
-        <!-- TAB: BUSCAR (Lugares y Coordenadas en vivo) -->
+        <!-- TAB: BUSCAR (Lugares, monumentos y coordenadas como Location) -->
         <section class="rem-panel ${activeTab === 'search' ? 'is-active' : ''}" data-rem-panel="search">
           <div class="rem-card rem-stack">
             <div>
-              <h2 class="rem-card-title">Búsqueda en vivo</h2>
-              <p class="rem-card-sub">Escribe una ciudad, monumento o coordenadas (ej. 40.4168, -3.7038)</p>
+              <h2 class="rem-card-title">Búsqueda Location</h2>
+              <p class="rem-card-sub">Busca ciudades, monumentos, direcciones o coordenadas (ej. 40.4168, -3.7038)</p>
             </div>
             <form id="rem-search-form" class="rem-search-bar">
-              <input id="rem-search-input" type="search" class="rem-input" value="${escapeHtml(searchQuery)}" placeholder="Buscar lugar o lat, lon..." autocomplete="off" />
-              <button type="submit" class="rem-btn rem-btn-primary">Buscar</button>
+              <input id="rem-search-input" type="search" class="rem-input" value="${escapeHtml(searchQuery)}" placeholder="Buscar lugar, monumento o lat, lon..." autocomplete="off" />
+              <button type="submit" class="rem-btn rem-btn-surface">Buscar</button>
+              <button id="rem-search-go-btn" type="button" class="rem-btn rem-btn-primary rem-direct-fly-btn">Ir</button>
             </form>
             <div id="rem-search-results" class="rem-result-list"></div>
           </div>
+
+          <div id="rem-search-city-explorer" class="rem-card rem-stack rem-city-poi-section"></div>
         </section>
 
         <!-- TAB: DESTINOS -->
@@ -993,19 +1724,7 @@ export function mountMobileRemoteUI(
             <div id="gev-custom-destinations-container" class="rem-result-list"></div>
           </div>
 
-          <div class="rem-card rem-stack">
-            <h2 class="rem-card-title">Ciudades rápidas</h2>
-            <div class="rem-preset-grid">
-              ${REMOTE_PRESET_LOCATIONS.map(
-                (loc, i) => `
-                <button type="button" class="btn-location rem-preset-btn" data-index="${i}">
-                  <span class="rem-preset-name">${escapeHtml(loc.name)}</span>
-                  <span class="rem-preset-coords">${loc.lat.toFixed(2)}, ${loc.lon.toFixed(2)}</span>
-                </button>
-              `,
-              ).join('')}
-            </div>
-          </div>
+          <div id="rem-dest-city-explorer" class="rem-card rem-stack rem-city-poi-section"></div>
         </section>
 
         <!-- TAB: CAPAS -->
@@ -1104,17 +1823,33 @@ export function mountMobileRemoteUI(
     }
 
     async function dispatch(action, args = {}, label = '') {
+      if (authRole === 'viewer') {
+        log('Modo Control: solo monitoreo SQL.', true);
+        return;
+      }
       try {
         if (label) log(label);
         await sendRemoteCommand({
           serverUrl,
           sessionName,
-          deviceName: userName,
+          deviceName: deviceLabel,
           password: activePassword,
+          profile: activePassword,
+          authToken,
           command: { action, args },
         });
         if (label) log(`Enviado a PC: ${label}`);
       } catch (err) {
+        if (err.status === 401) {
+          clearMemorySession();
+          renderConfigView('Tu sesión remota fue revocada o expiró. Vuelve a vincularte.');
+          return;
+        }
+        if (err.status === 403 && err.code === 'READ_ONLY_VIEWER') {
+          authRole = 'viewer';
+          renderControlView();
+          return;
+        }
         log(`Error de conexión: ${err.message}`, true);
       }
     }
@@ -1268,28 +2003,158 @@ export function mountMobileRemoteUI(
       dispatch('stop', {}, 'Movimiento detenido');
     });
 
-    // Live Place & Coordinate Search
+    // Live Place & Coordinate Search (Parity with desktop LOCATION mode)
     const searchForm = root.querySelector('#rem-search-form');
     const searchInput = root.querySelector('#rem-search-input');
+    const searchGoBtn = root.querySelector('#rem-search-go-btn');
     const searchResultsEl = root.querySelector('#rem-search-results');
+
+    function flyDirectLocationQuery(rawQuery) {
+      const clean = String(rawQuery || '').trim();
+      if (!clean) {
+        searchInput?.focus();
+        return;
+      }
+      const parsedCoords = parseCoordinateQuery(clean);
+      if (parsedCoords) {
+        dispatch(
+          'fly_to_location',
+          {
+            lat: parsedCoords.lat,
+            lon: parsedCoords.lon,
+            height: 1200,
+            rangeM: 1200,
+            exactCoord: true,
+            label: `${parsedCoords.lat.toFixed(4)}, ${parsedCoords.lon.toFixed(4)}`,
+          },
+          `Volando a ${parsedCoords.lat.toFixed(4)}, ${parsedCoords.lon.toFixed(4)}`,
+        );
+        return;
+      }
+      dispatch(
+        'fly_to_location',
+        { query: clean },
+        `Buscando y volando en Location a "${clean}"`,
+      );
+    }
+
+    function renderCityExplorers() {
+      const containers = [
+        root.querySelector('#rem-search-city-explorer'),
+        root.querySelector('#rem-dest-city-explorer'),
+      ].filter(Boolean);
+      const cityEntries = Object.entries(CITY_POIS);
+      const activeCity =
+        activeRemoteCityId && CITY_POIS[activeRemoteCityId]
+          ? CITY_POIS[activeRemoteCityId]
+          : null;
+
+      const html = `
+        <div class="rem-card-head">
+          <div>
+            <h2 class="rem-card-title">Ciudades y monumentos (Location)</h2>
+            <p class="rem-card-sub">Elige una ciudad y toca cualquiera de sus puntos de interés</p>
+          </div>
+        </div>
+        <div class="rem-preset-grid">
+          ${cityEntries
+            .map(([cityId, city]) => {
+              const primary = city.pois?.[0];
+              const isSelected = activeRemoteCityId === cityId;
+              return `
+                <button type="button" class="btn-location rem-preset-btn ${isSelected ? 'is-active' : ''}" data-city-id="${escapeHtml(cityId)}" aria-pressed="${isSelected ? 'true' : 'false'}">
+                  <span class="rem-preset-name">${escapeHtml(city.name)}</span>
+                  <span class="rem-preset-coords">${primary ? `${primary.lat.toFixed(2)}, ${primary.lon.toFixed(2)}` : ''}</span>
+                </button>
+              `;
+            })
+            .join('')}
+        </div>
+        ${
+          activeCity?.pois?.length
+            ? `
+          <div class="rem-poi-row" role="group" aria-label="Puntos de interés de ${escapeHtml(activeCity.name)}">
+            ${activeCity.pois
+              .map(
+                (poi, poiIndex) => `
+              <button type="button" class="rem-poi-chip ${activeRemotePoiIndex === poiIndex ? 'is-active' : ''}" data-city-id="${escapeHtml(activeRemoteCityId)}" data-poi-index="${poiIndex}" aria-pressed="${activeRemotePoiIndex === poiIndex ? 'true' : 'false'}">
+                ${escapeHtml(poi.name)}
+              </button>
+            `,
+              )
+              .join('')}
+          </div>
+        `
+            : ''
+        }
+      `;
+
+      for (const box of containers) {
+        box.innerHTML = html;
+        box.querySelectorAll('[data-city-id]:not([data-poi-index])').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const cityId = btn.getAttribute('data-city-id');
+            const city = CITY_POIS[cityId];
+            if (!city) return;
+            activeRemoteCityId = cityId;
+            activeRemotePoiIndex = 0;
+            renderCityExplorers();
+            dispatch(
+              'fly_to_location',
+              { cityId, query: city.name },
+              `Volando a ${city.name}`,
+            );
+          });
+        });
+        box.querySelectorAll('[data-poi-index]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const cityId = btn.getAttribute('data-city-id');
+            const poiIndex = Number(btn.getAttribute('data-poi-index'));
+            const poi = CITY_POIS[cityId]?.pois?.[poiIndex];
+            if (!poi) return;
+            activeRemoteCityId = cityId;
+            activeRemotePoiIndex = poiIndex;
+            renderCityExplorers();
+            dispatch(
+              'fly_to_location',
+              { cityId, poiIndex, query: poi.name },
+              `Volando a ${poi.name}`,
+            );
+          });
+        });
+      }
+    }
 
     function renderSearchResults(loadingState = false) {
       if (!searchResultsEl) return;
+      const trimmedQuery = searchQuery.trim();
+      const quickFlyHtml = trimmedQuery
+        ? `
+          <div class="rem-result-row">
+            <div class="rem-result-info">
+              <div class="rem-result-name">Ir directo en Location: "${escapeHtml(trimmedQuery)}"</div>
+              <div class="rem-result-meta">Usa el buscador completo de escritorio con encuadre y contorno</div>
+            </div>
+            <div class="rem-result-actions">
+              <button type="button" class="rem-btn rem-btn-primary rem-btn-sm" data-fly-query="${escapeHtml(trimmedQuery)}">Ir</button>
+            </div>
+          </div>
+        `
+        : '';
+
       if (loadingState) {
-        searchResultsEl.innerHTML = `<div class="rem-empty">Buscando lugares...</div>`;
+        searchResultsEl.innerHTML = `${quickFlyHtml}<div class="rem-empty">Buscando lugares...</div>`;
+      } else if (!trimmedQuery) {
+        searchResultsEl.innerHTML = `<div class="rem-empty">Introduce un nombre, monumento o coordenadas para buscar en Location.</div>`;
         return;
-      }
-      if (!searchQuery.trim()) {
-        searchResultsEl.innerHTML = `<div class="rem-empty">Introduce un nombre o coordenadas para buscar en vivo.</div>`;
-        return;
-      }
-      if (!searchResults.length) {
-        searchResultsEl.innerHTML = `<div class="rem-empty">No se encontraron resultados para "${escapeHtml(searchQuery)}".</div>`;
-        return;
-      }
-      searchResultsEl.innerHTML = searchResults
-        .map(
-          (item, idx) => `
+      } else if (!searchResults.length) {
+        searchResultsEl.innerHTML = `${quickFlyHtml}<div class="rem-empty">Sin sugerencias previas para "${escapeHtml(searchQuery)}". Usa "Ir" para buscar directamente en el mapa principal.</div>`;
+      } else {
+        searchResultsEl.innerHTML =
+          quickFlyHtml +
+          searchResults
+            .map(
+              (item, idx) => `
           <div class="rem-result-row">
             <div class="rem-result-info">
               <div class="rem-result-name">${escapeHtml(item.name)}</div>
@@ -1301,16 +2166,62 @@ export function mountMobileRemoteUI(
             </div>
           </div>
         `,
-        )
-        .join('');
+            )
+            .join('');
+      }
+
+      searchResultsEl
+        .querySelector('[data-fly-query]')
+        ?.addEventListener('click', (e) => {
+          const q = e.currentTarget.getAttribute('data-fly-query') || '';
+          flyDirectLocationQuery(q);
+        });
 
       searchResultsEl.querySelectorAll('[data-fly-idx]').forEach((btn) => {
         btn.addEventListener('click', () => {
           const item = searchResults[Number(btn.getAttribute('data-fly-idx'))];
           if (!item) return;
+          if (item.cityId) {
+            activeRemoteCityId = item.cityId;
+            activeRemotePoiIndex = Number.isInteger(item.poiIndex)
+              ? item.poiIndex
+              : 0;
+            renderCityExplorers();
+            dispatch(
+              'fly_to_location',
+              {
+                cityId: item.cityId,
+                poiIndex: item.poiIndex,
+                query: item.name,
+              },
+              `Volando a ${item.name}`,
+            );
+            return;
+          }
+          if (item.exactCoord) {
+            dispatch(
+              'fly_to_location',
+              {
+                lat: item.lat,
+                lon: item.lon,
+                height: item.height || 1200,
+                rangeM: item.height || 1200,
+                exactCoord: true,
+                label: item.name,
+              },
+              `Volando a ${item.name}`,
+            );
+            return;
+          }
           dispatch(
             'fly_to_location',
-            { lat: item.lat, lon: item.lon, height: item.height || 14000 },
+            {
+              query: item.query || item.name,
+              lat: item.lat,
+              lon: item.lon,
+              height: item.height || 14000,
+              label: item.name,
+            },
             `Volando a ${item.name}`,
           );
         });
@@ -1337,6 +2248,7 @@ export function mountMobileRemoteUI(
               serverUrl,
               sessionName,
               password: activePassword,
+              authToken,
               destinations: customLocations,
             });
           } catch {
@@ -1366,7 +2278,11 @@ export function mountMobileRemoteUI(
     searchForm?.addEventListener('submit', (e) => {
       e.preventDefault();
       if (searchTimer) clearTimeout(searchTimer);
-      runSearch(searchInput?.value || '');
+      void runSearch(searchInput?.value || '');
+    });
+
+    searchGoBtn?.addEventListener('click', () => {
+      flyDirectLocationQuery(searchInput?.value || searchQuery);
     });
 
     searchInput?.addEventListener('input', () => {
@@ -1376,6 +2292,7 @@ export function mountMobileRemoteUI(
     });
 
     renderSearchResults(false);
+    renderCityExplorers();
 
     // Custom Destinations & Password Presets
     function renderCustomLocations() {
@@ -1396,7 +2313,7 @@ export function mountMobileRemoteUI(
       box.innerHTML = customLocations
         .map(
           (dest) => `
-        <button type="button" class="btn-custom-dest rem-dest-btn" data-lat="${dest.lat}" data-lon="${dest.lon}" data-height="${dest.height || 15000}">
+        <button type="button" class="btn-custom-dest rem-dest-btn" data-lat="${Number(dest.lat) || 0}" data-lon="${Number(dest.lon) || 0}" data-height="${Number(dest.height) || 15000}">
           <span>
             <span class="rem-result-name">${escapeHtml(dest.name)}</span>
             <span class="rem-result-meta">${Number(dest.lat).toFixed(4)}, ${Number(dest.lon).toFixed(4)}</span>
@@ -1416,7 +2333,14 @@ export function mountMobileRemoteUI(
             btn.querySelector('.rem-result-name')?.textContent || 'destino';
           dispatch(
             'fly_to_location',
-            { lat, lon, height },
+            {
+              lat,
+              lon,
+              height,
+              rangeM: height,
+              label,
+              exactCoord: true,
+            },
             `Volando a ${label}`,
           );
         });
@@ -1438,7 +2362,8 @@ export function mountMobileRemoteUI(
         const sessionData = await fetchRemoteSession({
           serverUrl,
           sessionName,
-          password: activePassword,
+          profile: activePassword,
+          authToken,
         });
         if (sessionData?.customLocations?.length) {
           customLocations = sessionData.customLocations;
@@ -1456,7 +2381,24 @@ export function mountMobileRemoteUI(
 
     root
       .querySelector('#gev-btn-settings')
-      ?.addEventListener('click', renderConfigView);
+      ?.addEventListener('click', () => renderConfigView());
+    root
+      .querySelector('#gev-btn-logout')
+      ?.addEventListener('click', async () => {
+        try {
+          if (authToken) {
+            await remoteApiRequest('/auth/logout', {
+              serverUrl,
+              method: 'POST',
+              authToken,
+            });
+          }
+        } catch {
+          /* ignore */
+        }
+        clearMemorySession();
+        renderConfigView('Sesión remota cerrada.');
+      });
     root
       .querySelector('#gev-btn-refresh-custom-dest')
       ?.addEventListener('click', () =>
@@ -1476,20 +2418,6 @@ export function mountMobileRemoteUI(
         const input = root.querySelector('#gev-mobile-pass-input');
         if (input) input.value = p;
         loadPasswordDestinations(p);
-      });
-    });
-
-    root.querySelectorAll('.btn-location').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const idx = Number(btn.getAttribute('data-index'));
-        const loc = REMOTE_PRESET_LOCATIONS[idx];
-        if (loc) {
-          dispatch(
-            'fly_to_location',
-            { lat: loc.lat, lon: loc.lon, height: loc.height },
-            `Volando a ${loc.name}`,
-          );
-        }
       });
     });
 
@@ -1627,8 +2555,10 @@ export function mountMobileRemoteUI(
           await sendRemoteCommand({
             serverUrl,
             sessionName,
-            deviceName: userName,
+            deviceName: deviceLabel,
             password: activePassword,
+            profile: activePassword,
+            authToken,
             command: { action: actionName, args: actionArgs },
           });
           if (actionName === 'set_layer_visibility') {
@@ -1767,8 +2697,44 @@ export function mountMobileRemoteUI(
     }
   }
 
-  if (validUrlSession) {
-    renderControlView();
+  async function autoClaimQrPairing() {
+    root.innerHTML = `
+      <div class="rem-setup-wrap">
+        <section class="rem-card rem-stack rem-pending-card">
+          <span class="material-symbols-outlined rem-pending-icon" aria-hidden="true">qr_code_2</span>
+          <h2 class="rem-card-title">Vinculando con el servidor SQL...</h2>
+          <p class="rem-card-sub">Validando código QR de un solo uso para @${escapeHtml(validUrlSession)}.</p>
+        </section>
+      </div>
+    `;
+    try {
+      const authRes = await remoteApiRequest('/pairing/claim', {
+        serverUrl,
+        method: 'POST',
+        authToken: '',
+        body: {
+          username: validUrlSession,
+          pairToken: urlPairToken,
+          deviceName: deviceLabel,
+          deviceType: 'mobile',
+        },
+      });
+      authToken = authRes.token || '';
+      authRole = authRes.device?.role || authRes.user?.role || 'operator';
+      currentDeviceId = authRes.device?.id || '';
+      pendingApproval = Boolean(authRes.pendingApproval);
+      if (pendingApproval) {
+        renderPendingApprovalView();
+      } else {
+        renderControlView();
+      }
+    } catch (err) {
+      renderConfigView(err.message || 'El código QR de vinculación expiró o ya fue utilizado.');
+    }
+  }
+
+  if (validUrlSession && urlPairToken) {
+    void autoClaimQrPairing();
   } else {
     renderConfigView();
   }
@@ -1776,6 +2742,8 @@ export function mountMobileRemoteUI(
 
   return {
     destroy() {
+      stopPendingApprovalPoll();
+      stopMonitorPoll();
       if (searchTimer) clearTimeout(searchTimer);
       if (searchAbort) searchAbort.abort();
       if (aiRecognition) {

@@ -5,6 +5,7 @@ import { CITY_POIS } from '../cityPois.js';
 import {
   GLOBE_VIEW,
   flyToGlobeView,
+  flyToLandmark,
   flyToPresetLocation,
   flyToPOI,
   searchAndFlyTo,
@@ -74,6 +75,7 @@ export class StyleManager extends ApplicationShell {
         CITY_POIS,
         GLOBE_VIEW,
         flyToGlobeView,
+        flyToLandmark,
         flyToPresetLocation,
         flyToPOI,
         searchAndFlyTo,

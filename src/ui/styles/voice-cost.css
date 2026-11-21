@@ -19,8 +19,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 212, 255, 0.06);
-  border: 1px solid rgba(0, 212, 255, 0.34);
+  background: rgba(var(--accent-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-rgb), 0.34);
   border-radius: 0.18rem;
   color: var(--text-secondary);
   font-family: var(--font-mono);
@@ -36,16 +36,15 @@
 
 .gev-voice-tier-btn:hover {
   color: var(--text-primary);
-  border-color: rgba(0, 212, 255, 0.6);
-  background: rgba(0, 212, 255, 0.12);
+  border-color: rgba(var(--accent-rgb), 0.6);
+  background: rgba(var(--accent-rgb), 0.14);
 }
 
-/* MINI engaged — amber, distinct from the cyan default so the cheaper tier
-   is legible at a glance without reading the label. */
+/* MINI engaged — warm ember from the emblem palette. */
 .gev-voice-tier-btn[aria-pressed='true'] {
-  color: #ffc46b;
-  border-color: rgba(255, 196, 107, 0.55);
-  background: rgba(255, 196, 107, 0.12);
+  color: var(--ember-bright, #e0764f);
+  border-color: rgba(var(--ember-rgb, 144, 49, 22), 0.65);
+  background: rgba(var(--ember-rgb, 144, 49, 22), 0.2);
 }
 
 .gev-voice-cost-value {
@@ -166,7 +165,7 @@ html:not([lang='en'])
   padding: 8px 6px;
   border: 1px solid var(--glass-border);
   border-radius: 8px;
-  background: var(--bg-panel, #09121b);
+  background: var(--bg-panel, #06120e);
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 0.5rem;
@@ -181,7 +180,7 @@ html:not([lang='en'])
   width: 100%;
   min-height: 30px;
   color: var(--text-primary);
-  background: #09121b;
+  background: #06120e;
   border: 1px solid var(--glass-border);
   border-radius: 4px;
   font: inherit;
@@ -256,9 +255,9 @@ html:not([lang='en'])
   align-items: center;
   gap: 6px;
   padding: 6px 46px 6px 6px;
-  border-color: rgba(123, 189, 211, 0.28);
-  background: rgba(9, 18, 27, 0.88);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.46);
+  border-color: rgba(96, 115, 110, 0.34);
+  background: rgba(6, 16, 13, 0.92);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.52);
   color-scheme: dark;
   opacity: 1;
   pointer-events: auto;
@@ -292,8 +291,8 @@ html:not([lang='en'])
   min-width: 34px;
   min-height: 34px;
   padding: 0;
-  color: rgba(190, 221, 230, 0.72);
-  background: rgba(9, 18, 27, 0.92);
+  color: var(--text-secondary);
+  background: rgba(6, 16, 13, 0.94);
   border: 1px solid var(--glass-border);
   border-radius: 0.3rem;
   font-size: 18px;
@@ -314,7 +313,7 @@ html:not([lang='en'])
   .gev-voice-settings-button:is(:hover, [aria-expanded='true']) {
   color: var(--voice-panel-accent, var(--accent));
   border-color: currentColor;
-  background: rgba(0, 212, 255, 0.12);
+  background: rgba(var(--accent-rgb), 0.14);
 }
 #gev-voice-control .gev-voice-settings-button:focus-visible {
   outline: 2px solid var(--voice-panel-accent, var(--accent));

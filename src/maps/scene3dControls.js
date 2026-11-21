@@ -13,7 +13,24 @@ async function defaultCreateOsmBuildings({ token }) {
   const resource = await Cesium.IonResource.fromAssetId(OSM_BUILDINGS_ASSET_ID, {
     accessToken: token,
   });
-  return Cesium.Cesium3DTileset.fromUrl(resource);
+  const tileset = await Cesium.Cesium3DTileset.fromUrl(resource, {
+    showOutline: false,
+    enableShowOutline: false,
+    maximumScreenSpaceError: 16,
+    dynamicScreenSpaceError: true,
+    dynamicScreenSpaceErrorDensity: 2.0e-4,
+    dynamicScreenSpaceErrorFactor: 8.0,
+    dynamicScreenSpaceErrorHeightFalloff: 0.25,
+    enableCollision: true,
+  });
+  if (!tileset.style && typeof Cesium.Cesium3DTileStyle === 'function') {
+    const defaultColor =
+      Cesium.Color?.WHITE?.toCssColorString?.() || 'rgb(255,255,255)';
+    tileset.style = new Cesium.Cesium3DTileStyle({
+      color: `Boolean(\${feature['cesium#color']}) ? color(\${feature['cesium#color']}) : ${defaultColor}`,
+    });
+  }
+  return tileset;
 }
 
 /**
@@ -36,7 +53,11 @@ export function createScene3dControls({
   let loadingBuildings = false;
   let loadGeneration = 0;
   let buildingsTileset = null;
+  let removeAllTilesLoadedListener = null;
   let restorePhotorealAfter2d = false;
+  let restorePhotorealAfterBuildings = false;
+  let buildingsStackFallbackId = null;
+  let savedDepthTestAgainstTerrain = null;
 
   const isPhotorealActive = () =>
     mapStackController?.getActiveId?.() === 'photoreal';
@@ -87,9 +108,26 @@ export function createScene3dControls({
     }
   }
 
+  function syncDepthTestAgainstTerrain() {
+    const globe = viewer?.scene?.globe;
+    if (!globe || typeof globe.depthTestAgainstTerrain !== 'boolean') return;
+    const shouldDepthTest = Boolean(buildings3d && globe3d);
+    if (shouldDepthTest) {
+      if (savedDepthTestAgainstTerrain === null) {
+        savedDepthTestAgainstTerrain = globe.depthTestAgainstTerrain;
+      }
+      globe.depthTestAgainstTerrain = true;
+    } else if (savedDepthTestAgainstTerrain !== null) {
+      globe.depthTestAgainstTerrain = savedDepthTestAgainstTerrain;
+      savedDepthTestAgainstTerrain = null;
+    }
+  }
+
   function syncTilesetVisibility() {
-    if (!buildingsTileset) return;
-    buildingsTileset.show = Boolean(buildings3d && globe3d);
+    if (buildingsTileset) {
+      buildingsTileset.show = Boolean(buildings3d && globe3d);
+    }
+    syncDepthTestAgainstTerrain();
   }
 
   async function setGlobe3dEnabled(
@@ -147,6 +185,20 @@ export function createScene3dControls({
       buildings3d = false;
       loadingBuildings = false;
       syncTilesetVisibility();
+      if (
+        restorePhotorealAfterBuildings &&
+        globe3d &&
+        mapStackController?.getActiveId?.() === buildingsStackFallbackId &&
+        mapStackController?.isStackAvailable?.('photoreal')
+      ) {
+        restorePhotorealAfterBuildings = false;
+        buildingsStackFallbackId = null;
+        await switchStack('photoreal');
+        if (destroyed || buildings3d) return getState();
+      } else {
+        restorePhotorealAfterBuildings = false;
+        buildingsStackFallbackId = null;
+      }
       syncButtons();
       requestRender('buildings-3d-off');
       if (!silent) showToast(t('3D buildings disabled'));
@@ -177,7 +229,10 @@ export function createScene3dControls({
 
     if (isPhotorealActive()) {
       restorePhotorealAfter2d = false;
-      await switchStack(pickBuildingsImageryStack());
+      const fallbackStack = pickBuildingsImageryStack();
+      restorePhotorealAfterBuildings = true;
+      buildingsStackFallbackId = fallbackStack;
+      await switchStack(fallbackStack);
       if (destroyed || gen !== loadGeneration || !buildings3d) {
         return getState();
       }
@@ -206,7 +261,15 @@ export function createScene3dControls({
         }
         return getState();
       }
+      tileset.show = Boolean(buildings3d && globe3d);
       buildingsTileset = tileset;
+      removeAllTilesLoadedListener = tileset.allTilesLoaded?.addEventListener?.(
+        () => {
+          if (!destroyed && buildings3d && globe3d) {
+            requestRender('buildings-3d-loaded');
+          }
+        },
+      );
       viewer?.scene?.primitives?.add?.(tileset);
       loadingBuildings = false;
       syncTilesetVisibility();
@@ -217,6 +280,21 @@ export function createScene3dControls({
       if (destroyed || gen !== loadGeneration) return getState();
       buildings3d = false;
       loadingBuildings = false;
+      syncDepthTestAgainstTerrain();
+      if (
+        restorePhotorealAfterBuildings &&
+        globe3d &&
+        mapStackController?.getActiveId?.() === buildingsStackFallbackId &&
+        mapStackController?.isStackAvailable?.('photoreal')
+      ) {
+        restorePhotorealAfterBuildings = false;
+        buildingsStackFallbackId = null;
+        await switchStack('photoreal');
+        if (destroyed) return getState();
+      } else {
+        restorePhotorealAfterBuildings = false;
+        buildingsStackFallbackId = null;
+      }
       syncButtons();
       if (!silent) {
         showToast(
@@ -257,6 +335,8 @@ export function createScene3dControls({
   const unsubscribeStack = mapStackController?.subscribe?.((state) => {
     if (destroyed || !state) return;
     if (state.activeId === 'photoreal') {
+      restorePhotorealAfterBuildings = false;
+      buildingsStackFallbackId = null;
       if (!globe3d) {
         void setGlobe3dEnabled(true, {
           restorePhotoreal: false,
@@ -286,11 +366,17 @@ export function createScene3dControls({
       if (destroyed) return;
       destroyed = true;
       loadGeneration++;
+      buildings3d = false;
+      syncDepthTestAgainstTerrain();
       if (typeof removeMorphListener === 'function') {
         removeMorphListener();
       }
       if (typeof unsubscribeStack === 'function') {
         unsubscribeStack();
+      }
+      if (typeof removeAllTilesLoadedListener === 'function') {
+        removeAllTilesLoadedListener();
+        removeAllTilesLoadedListener = null;
       }
       if (buildingsTileset) {
         try {

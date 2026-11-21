@@ -46,10 +46,52 @@ export class VisualEffects {
     this.bloomStage = null;
     this.sharpenStage = null;
     this.frameId = null;
+    this.paused = false;
+    this.pausedAtWallMs = null;
+    this.pausedAtPerfMs = null;
     this.stopped = false;
     this.destroyed = false;
     this.stageEntries = [];
     this.previousBloom = null;
+  }
+
+  setPaused(paused) {
+    if (this.stopped) return;
+    const next = Boolean(paused);
+    if (next === this.paused) return;
+    this.paused = next;
+    if (next) {
+      this.pausedAtWallMs = this.wallNow();
+      this.pausedAtPerfMs = this.now();
+      if (this.frameId !== null) {
+        this.cancelFrame(this.frameId);
+        this.frameId = null;
+      }
+      this.releaseRender('style-anim');
+      return;
+    }
+
+    if (this.pausedAtWallMs !== null) {
+      this.startTime += Math.max(0, this.wallNow() - this.pausedAtWallMs);
+      this.pausedAtWallMs = null;
+    }
+    if (this.pausedAtPerfMs !== null) {
+      const pausedPerfDelta = Math.max(0, this.now() - this.pausedAtPerfMs);
+      for (const transition of this.transitions.values()) {
+        transition.start += pausedPerfDelta;
+      }
+      this.pausedAtPerfMs = null;
+    }
+
+    const hasAnimatedStage = this.stageEntries.some(
+      ([, stage]) =>
+        stage.enabled &&
+        stage.uniforms.time !== undefined &&
+        stage.uniforms.intensity > 0.001,
+    );
+    if (this.transitions.size > 0 || hasAnimatedStage) {
+      this.startAnimationLoop();
+    }
   }
 
   initStyles() {
@@ -193,9 +235,9 @@ export class VisualEffects {
   }
 
   startAnimationLoop() {
-    if (this.stopped || this.frameId !== null) return;
+    if (this.stopped || this.paused || this.frameId !== null) return;
     const update = () => {
-      if (this.stopped) return;
+      if (this.stopped || this.paused) return;
       const now = this.now();
       const elapsedSec = (this.wallNow() - this.startTime) / 1000.0;
       for (const [name, transition] of this.transitions) {
@@ -232,6 +274,9 @@ export class VisualEffects {
   stop() {
     if (this.stopped) return;
     this.stopped = true;
+    this.paused = false;
+    this.pausedAtWallMs = null;
+    this.pausedAtPerfMs = null;
     if (this.frameId !== null) this.cancelFrame(this.frameId);
     this.frameId = null;
     this.releaseRender('style-anim');

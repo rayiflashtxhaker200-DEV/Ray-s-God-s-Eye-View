@@ -13,7 +13,7 @@ import { buildStarVertices, STAR_VERTEX_FLOATS } from './stars.js';
 export const STARRY_SKY_CESIUM_VERSION = '1.138.0';
 
 /** Brightness of the Milky Way glow; the stars carry the sky. */
-export const MILKY_WAY_INTENSITY = 0.4;
+export const MILKY_WAY_INTENSITY = 0.55;
 /** Clock change, in seconds, below which the sky rotation is reused. */
 export const SKY_ROTATION_EPSILON_SECONDS = 1;
 
@@ -77,11 +77,20 @@ uniform float u_intensity;
 in vec3 v_direction;
 void main()
 {
-    vec3 color = czm_textureCube(u_milkyWay, normalize(v_direction)).rgb * u_intensity;
-    // Interleaved-gradient dither: the dim glow spans only a few 8-bit steps.
-    float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-    color = max(color + (noise - 0.5) / 255.0, 0.0);
-    out_FragColor = vec4(czm_gammaCorrect(color), 1.0);
+    vec3 raw = czm_textureCube(u_milkyWay, normalize(v_direction)).rgb;
+    // Suppress 8-bit VP8 YUV420 chroma banding in the near-black sky tail and
+    // undo sRGB encoding before scaling intensity.
+    float rawLuma = dot(raw, vec3(0.2126, 0.7152, 0.0722));
+    float chromaKeep = smoothstep(0.015, 0.085, rawLuma);
+    vec3 clean = mix(vec3(rawLuma), raw, chromaKeep);
+    vec3 linear = pow(max(clean, 0.0), vec3(1.65)) * u_intensity;
+    vec3 color = czm_gammaCorrect(linear);
+    // Triangular interleaved-gradient dither in output 8-bit space to eliminate banding.
+    float n1 = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    float n2 = fract(52.9829189 * fract(dot(gl_FragCoord.xy + vec2(17.0, 31.0), vec2(0.06711056, 0.00583715))));
+    float dither = (n1 + n2 - 1.0) * (1.25 / 255.0);
+    color = max(color + dither, 0.0);
+    out_FragColor = vec4(color, 1.0);
 }
 `;
 
@@ -137,15 +146,68 @@ export function isSkyRotationCurrent(cachedTime, time) {
   );
 }
 
+/** Normalize hardware performance profile fields for sky texture and star rendering. */
+export function normalizeSkyQuality(profile = {}) {
+  const low =
+    profile?.skyQuality === 'low' ||
+    (profile?.skyQuality === undefined && Boolean(profile?.isLowSpec));
+  const textureMaxSize = Math.max(
+    128,
+    Math.round(
+      Number(profile?.skyTextureMaxSize) || (low ? 512 : 1024),
+    ),
+  );
+  const generateMipmap =
+    typeof profile?.skyGenerateMipmap === 'boolean'
+      ? profile.skyGenerateMipmap
+      : !low;
+  const starLimitMagnitude = Number.isFinite(profile?.skyStarLimitMagnitude)
+    ? profile.skyStarLimitMagnitude
+    : low
+      ? 4.8
+      : 6.5;
+  return {
+    quality: low ? 'low' : 'high',
+    textureMaxSize,
+    generateMipmap,
+    starLimitMagnitude,
+  };
+}
+
+/** Downscale a cube face image cleanly when textureMaxSize is smaller than source dimensions. */
+export function scaleSkyFaceTexture(source, maxSize) {
+  if (!source || !Number.isFinite(maxSize) || maxSize <= 0) return source;
+  const width = Number(source.naturalWidth || source.width) || 0;
+  const height = Number(source.naturalHeight || source.height) || 0;
+  if (width <= maxSize && height <= maxSize) return source;
+  if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
+    return source;
+  }
+  const scale = maxSize / Math.max(width, height);
+  const targetW = Math.max(1, Math.round(width * scale));
+  const targetH = Math.max(1, Math.round(height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = targetW;
+  canvas.height = targetH;
+  const ctx = canvas.getContext?.('2d');
+  if (!ctx) return source;
+  ctx.imageSmoothingEnabled = true;
+  if ('imageSmoothingQuality' in ctx) ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(source, 0, 0, targetW, targetH);
+  return canvas;
+}
+
 export class StarrySky {
   /**
    * @param {object} [options]
    * @param {() => void} [options.requestRender] renders one frame when an
    *   asset or the precise rotation arrives; the idle governor by default.
+   * @param {object} [options.qualityProfile] hardware profile settings for sky textures.
    */
   constructor({
     requestRender = () => governorRequestRender('sky-assets'),
-    loadAssets = !(typeof import.meta !== 'undefined' && import.meta.env?.PROD),
+    loadAssets = true,
+    qualityProfile = undefined,
   } = {}) {
     /** Matches `SkyBox#show`. */
     this.show = true;
@@ -154,6 +216,7 @@ export class StarrySky {
     this.milkyWayVisibility = 1;
     this._loadAssets = Boolean(loadAssets);
     this._requestRender = requestRender;
+    this._quality = normalizeSkyQuality(qualityProfile);
     this._rotation = Cesium.Matrix3.clone(Cesium.Matrix3.IDENTITY);
     this._rotationTime = undefined;
     this._rotationPrecise = false;
@@ -161,6 +224,8 @@ export class StarrySky {
     this._icrfUnavailable = false;
     this._icrfMissing = undefined;
     this._loading = false;
+    this._rawStarPack = undefined;
+    this._rawFaceImages = undefined;
     this._starData = undefined;
     this._faceImages = undefined;
     // Scene reads `_cubeMap` for model lighting. Keep it dark as on main;
@@ -200,24 +265,59 @@ export class StarrySky {
     loadBundledJson(STAR_PACK_URL)
       .then((pack) => {
         if (this._destroyed) return;
-        this._starData = buildStarVertices(pack);
+        this._rawStarPack = pack;
+        this._starData = buildStarVertices(pack, {
+          maxMagnitude: this._quality.starLimitMagnitude,
+        });
         this._requestRender();
       })
       .catch((error) =>
         console.warn('[sky] star catalogue unavailable', error),
       );
     const faces = Object.entries(MILKY_WAY_FACE_URLS);
+    const cesiumFaceSuffix = {
+      positiveX: 'px',
+      negativeX: 'mx',
+      positiveY: 'py',
+      negativeY: 'my',
+      positiveZ: 'pz',
+      negativeZ: 'mz',
+    };
     Promise.all(
       faces.map(([, url]) => Cesium.Resource.fetchImage({ url: url.href })),
     )
       .then((images) => {
         if (this._destroyed) return;
-        this._faceImages = Object.fromEntries(
+        this._rawFaceImages = Object.fromEntries(
           faces.map(([face], index) => [face, images[index]]),
         );
+        this._faceImages = this._rawFaceImages;
         this._requestRender();
       })
-      .catch((error) => console.warn('[sky] Milky Way unavailable', error));
+      .catch((error) => {
+        console.warn('[sky] Milky Way unavailable, trying Cesium SkyBox fallback', error);
+        if (typeof Cesium.buildModuleUrl !== 'function') return;
+        Promise.all(
+          faces.map(([face]) =>
+            Cesium.Resource.fetchImage({
+              url: Cesium.buildModuleUrl(
+                `Assets/Textures/SkyBox/tycho2t3_80_${cesiumFaceSuffix[face]}.jpg`,
+              ),
+            }),
+          ),
+        )
+          .then((fallbackImages) => {
+            if (this._destroyed) return;
+            this._rawFaceImages = Object.fromEntries(
+              faces.map(([face], index) => [face, fallbackImages[index]]),
+            );
+            this._faceImages = this._rawFaceImages;
+            this._requestRender();
+          })
+          .catch((fallbackError) =>
+            console.warn('[sky] Fallback SkyBox also unavailable', fallbackError),
+          );
+      });
   }
 
   _updateRotation(time) {
@@ -275,15 +375,28 @@ export class StarrySky {
   }
 
   _createMilkyWayCommand(context) {
+    const scaledSource = Object.fromEntries(
+      Object.entries(this._faceImages).map(([face, image]) => [
+        face,
+        scaleSkyFaceTexture(image, this._quality.textureMaxSize),
+      ]),
+    );
     const cubeMap = new Cesium.CubeMap({
       context,
-      source: this._faceImages,
+      source: scaledSource,
       flipY: false,
     });
-    cubeMap.generateMipmap();
-    cubeMap.sampler = new Cesium.Sampler({
-      minificationFilter: Cesium.TextureMinificationFilter.LINEAR_MIPMAP_LINEAR,
-    });
+    if (this._quality.generateMipmap) {
+      cubeMap.generateMipmap();
+      cubeMap.sampler = new Cesium.Sampler({
+        minificationFilter:
+          Cesium.TextureMinificationFilter.LINEAR_MIPMAP_LINEAR,
+      });
+    } else {
+      cubeMap.sampler = new Cesium.Sampler({
+        minificationFilter: Cesium.TextureMinificationFilter.LINEAR,
+      });
+    }
     this._milkyWayCubeMap = cubeMap;
     this._faceImages = undefined;
     const geometry = Cesium.BoxGeometry.createGeometry(
@@ -432,6 +545,51 @@ export class StarrySky {
     return this._compositeCommand;
   }
 
+  /** Adapt sky cubemap resolution, mipmaps, and star magnitude budget dynamically. */
+  setQualityProfile(profile) {
+    if (this._destroyed) return false;
+    const next = normalizeSkyQuality(profile);
+    const prev = this._quality;
+    const textureChanged =
+      next.textureMaxSize !== prev.textureMaxSize ||
+      next.generateMipmap !== prev.generateMipmap;
+    const starsChanged = next.starLimitMagnitude !== prev.starLimitMagnitude;
+    if (!textureChanged && !starsChanged && next.quality === prev.quality) {
+      return false;
+    }
+
+    this._quality = next;
+    let updated = false;
+
+    if (starsChanged && this._rawStarPack) {
+      if (this._starCommand) {
+        this._starCommand.vertexArray?.destroy();
+        this._starCommand.shaderProgram?.destroy();
+        this._starCommand = undefined;
+      }
+      this._starData = buildStarVertices(this._rawStarPack, {
+        maxMagnitude: next.starLimitMagnitude,
+      });
+      this._useHdr = undefined;
+      updated = true;
+    }
+
+    if (textureChanged && this._rawFaceImages) {
+      if (this._milkyWayCommand) {
+        this._milkyWayCommand.vertexArray?.destroy();
+        this._milkyWayCommand.shaderProgram?.destroy();
+        this._milkyWayCommand = undefined;
+      }
+      this._milkyWayCubeMap = this._milkyWayCubeMap?.destroy();
+      this._faceImages = this._rawFaceImages;
+      this._useHdr = undefined;
+      updated = true;
+    }
+
+    if (updated) this._requestRender();
+    return true;
+  }
+
   isDestroyed() {
     return this._destroyed;
   }
@@ -446,6 +604,10 @@ export class StarrySky {
     this._cubeMap = this._cubeMap?.destroy();
     this._milkyWayCommand = undefined;
     this._starCommand = undefined;
+    this._rawStarPack = undefined;
+    this._rawFaceImages = undefined;
+    this._faceImages = undefined;
+    this._starData = undefined;
     this._commands.length = 0;
     this._destroyed = true;
     return undefined;

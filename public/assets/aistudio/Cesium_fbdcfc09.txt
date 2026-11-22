@@ -1,0 +1,212 @@
+En CesiumJS, la iluminación en modelos 3D y 3D Tiles se controla mediante la API Cesium.CustomShader (para lógica GLSL personalizada) y los sistemas nativos de iluminación basada en imágenes (IBL) y oclusión ambiental (HBAO). [1] (https://cesium.com/learn/ion-sdk/ref-doc/CustomShader.html), [2] (https://cesium.com/blog/2025/02/20/leveling-up-lighting-in-cesiumjs-ibl-dynamic-environment-maps-ambient-occlusion/)
+
+1. Modelos de iluminación con CustomShader
+
+La clase CustomShader permite inyectar código GLSL en el vertex o fragment shader y elegir cómo interactúa el material con la luz de la escena mediante la propiedad lightingModel: [1] (https://cesium.com/learn/ion-sdk/ref-doc/CustomShader.html)
+• Cesium.LightingModel.PBR (Por defecto). Aplica el modelo Physically Based Rendering de Cesium, reaccionando a la luz solar, sombras, reflejos del entorno y propiedades como roughness o metallic. [1] (https://cesium.com/blog/2025/02/20/leveling-up-lighting-in-cesiumjs-ibl-dynamic-environment-maps-ambient-occlusion/), [2] (https://cesium.com/learn/ion-sdk/ref-doc/CustomShader.html)
+• Cesium.LightingModel.UNLIT. Desactiva por completo el cálculo de luces y sombras. Es ideal para fotogrametría (como Google Photorealistic 3D Tiles) que ya trae la iluminación horneada en sus texturas o para visualizaciones estilizadas. [1] (https://sandcastle.cesium.com/?src=Custom%20Shaders%203D%20Tiles.html), [2] (https://community.cesium.com/t/photogrammetry-material-lighting/21051), [3] (https://cesium.com/learn/ion-sdk/ref-doc/CustomShader.html)
+
+Ejemplo práctico: Luz ambiental personalizada o efecto emisivo
+
+Puedes modificar material.diffuse y material.emissive dentro de fragmentMain para simular iluminación propia o realzar zonas oscuras: [1] (https://sandcastle.cesium.com/?src=Custom%20Shaders%203D%20Tiles.html), [2] (https://cesium.com/learn/ion-sdk/ref-doc/CustomShader.html)
+javascript
+const customLightingShader = new Cesium.CustomShader({
+  lightingModel: Cesium.LightingModel.PBR,
+  uniforms: {
+    u_glowColor: {
+      type: Cesium.UniformType.VEC3,
+      value: new Cesium.Color(0.1, 0.5, 1.0)
+    },
+    u_ambientBoost: {
+      type: Cesium.UniformType.FLOAT,
+      value: 0.25
+    }
+  },
+  fragmentShaderText: `
+    void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+      // Añade luz emisiva basada en la altura del vértice
+      float heightFactor = clamp(fsInput.attributes.positionMC.z / 100.0, 0.0, 1.0);
+      material.emissive += u_glowColor * heightFactor;
+      
+      // Aumenta ligeramente el brillo base para evitar sombras totalmente negras
+      material.diffuse += material.diffuse * u_ambientBoost;
+    }
+  `
+});
+
+// Aplicarlo a un Cesium3DTileset
+tileset.customShader = customLightingShader;
+Usa el código con precaución.
+(Puedes probar ejemplos interactivos directamente en Cesium Sandcastle). [1] (https://sandcastle.cesium.com/?src=Custom%20Shaders%203D%20Tiles.html)
+
+2. Iluminación global y entorno (sin escribir GLSL)
+
+Si buscas mejorar el realismo de toda la escena antes de programar shaders propios, Cesium incluye herramientas nativas de iluminación: [1] (https://cesium.com/blog/2025/02/20/leveling-up-lighting-in-cesiumjs-ibl-dynamic-environment-maps-ambient-occlusion/)
+• Image-Based Lighting (IBL) y Mapas de Entorno Dinámicos. Simulan reflejos atmosféricos y dispersión de luz en tiempo real según la hora del día y la posición del sol.
+• Ambient Occlusion (HBAO). Añade sombreado suave en esquinas, grietas y entre edificios mediante viewer.scene.postProcessStages.ambientOcclusion.enabled = true.
+• Luz direccional personalizada. Puedes reemplazar la luz del sol por una fuente fija o vinculada a la cámara usando viewer.scene.light = new Cesium.DirectionalLight(...). [1] (https://cesium.com/blog/2025/02/20/leveling-up-lighting-in-cesiumjs-ibl-dynamic-environment-maps-ambient-occlusion/)
+Para darte un código o configuración más exacta, cuéntame:
+• Plataforma (CesiumJS en web, Cesium for Unreal o Cesium for Unity)
+• Tipo de modelo (fotogrametría, edificios CAD/BIM, modelos glTF o terreno)
+• Efecto buscado (iluminación realista PBR, brillo nocturno/emisivo, sombras suaves o corregir modelos que se ven muy oscuros)
+
+
+Para conservar los colores originales de tus edificios y terreno en una escena nocturna realista, no debes teñir las texturas (material.diffuse) de azul oscuro. En su lugar, mantén el color base intacto, baja su exposición física y deja que el color provenga de la luz que rebota en la escena (luz de luna fría + luces urbanas cálidas + brillo especular).
+
+1. Shader para mantener el color original (CustomShader)
+
+Este shader preserva el albedo original (material.diffuse), reduce la saturación ligeramente (como ocurre con la visión humana en baja luz, llamado efecto Purkinje) y convierte los píxeles más luminosos de las texturas (letreros, ventanas iluminadas o farolas) en emisores de luz reales:
+javascript
+const realisticNightPreserveColor = new Cesium.CustomShader({
+  lightingModel: Cesium.LightingModel.PBR,
+  uniforms: {
+    u_ambientFloor: {
+      type: Cesium.UniformType.FLOAT,
+      value: 0.08 // Evita sombras 100% negras conservando el matiz original
+    },
+    u_emissiveThreshold: {
+      type: Cesium.UniformType.FLOAT,
+      value: 0.78 // Umbral de brillo en la textura para emitir luz propia
+    },
+    u_emissiveBoost: {
+      type: Cesium.UniformType.FLOAT,
+      value: 2.2
+    }
+  },
+  fragmentShaderText: `
+    void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+      vec3 baseColor = material.diffuse;
+
+      // 1. Mantener el color original, reduciendo ligeramente saturación nocturna (15%)
+      float luma = dot(baseColor, vec3(0.299, 0.587, 0.114));
+      vec3 nightAlbedo = mix(baseColor, vec3(luma), 0.15);
+      material.diffuse = nightAlbedo;
+
+      // 2. Luz ambiental mínima basada en el color original (para no perder detalle en sombra)
+      material.emissive += nightAlbedo * u_ambientFloor;
+
+      // 3. Extraer luces ya presentes en la textura (ventanas claras, vallas, focos)
+      float isBrightSpot = smoothstep(u_emissiveThreshold, 1.0, luma);
+      material.emissive += baseColor * isBrightSpot * u_emissiveBoost;
+
+      // 4. Aumentar ligeramente el brillo especular para que los materiales reflejen luces nocturnas
+      material.roughness = clamp(material.roughness * 0.85, 0.1, 1.0);
+    }
+  `
+});
+
+tileset.customShader = realisticNightPreserveColor;
+Usa el código con precaución.
+
+2. Iluminar el terreno (Globe) conservando sus colores
+
+El terreno en CesiumJS no usa CustomShader directamente, sino Globe.material o la iluminación atmosférica nativa. Para que el terreno no pierda sus colores originales (vegetación, carreteras, tierra) ni se vea negro:
+1. Activa la iluminación del globo y ajusta el brillo de atmósfera:javascript
+viewer.scene.globe.enableLighting = true;
+viewer.scene.globe.dynamicAtmosphereLighting = true;
+viewer.scene.globe.dynamicAtmosphereLightingFromSun = false; // Usa la luz de la escena (luna)
+Usa el código con precaución.
+2. Suaviza el contraste nocturno del terreno (nightFadeInDistance / lightingFadeOutDistance):javascript
+// Evita que el terreno caiga en oscuridad total en el lado nocturno
+viewer.scene.globe.lightingFadeOutDistance = 20000000.0;
+viewer.scene.globe.lightingFadeInDistance = 10000000.0;
+Usa el código con precaución.
+3. Luz direccional de luna equilibrada: Usa un color blanco-azulado muy sutil (intensity entre 0.3 y 0.45) para iluminar tanto el terreno como los edificios sin distorsionar los colores originales:javascript
+viewer.scene.light = new Cesium.DirectionalLight({
+  direction: new Cesium.Cartesian3(0.3, -0.5, -0.8),
+  color: new Cesium.Color(0.82, 0.88, 1.0), // Blanco frío neutro para no teñir colores
+  intensity: 0.4
+});
+Usa el código con precaución.
+
+3. Ajuste clave si tus edificios son Photogrammetry (ej. Google 3D Tiles)
+
+Si tus mallas 3D son fotogrametría con texturas diurnas horneadas:
+• Cambia lightingModel: Cesium.LightingModel.PBR a Cesium.LightingModel.UNLIT en el shader anterior, ya que la fotogrametría suele tener normales irregulares que crean manchas negras con luz direccional.
+• En modo UNLIT, multiplica material.diffuse = nightAlbedo * 0.35; al inicio de fragmentMain para simular la caída de luz nocturna manteniendo intactos los colores de fachadas, techos y árboles.
+Si quieres que ajuste los valores exactos de brillo o añada puntos de luz en calles/edificios, dime:
+• Tipo de malla 3D que usas (fotogrametría como Google 3D Tiles, edificios vectoriales/OSM, o modelos glTF con texturas PBR)
+• Si necesitas simular luces puntuales (como farolas o focos iluminando el suelo y fachadas cercanas)
+
+El problema en la imagen (contornos blancos duros con aspecto de dibujo o sobreenfoque, negros aplastados y ruido) ocurre por tres causas concretas: un exceso de contrast en el Bloom de Cesium, sombras solares duras sobre mallas de fotogrametría (Manhattan / Google 3D Tiles) y un cielo completamente negro sin gradiente atmosférico.
+Para lograr una escena nocturna limpia y fotorrealista que respete los colores originales de tus edificios y parques sin esos artefactos de borde, aplica esta solución en tres pasos:
+
+1. Corrige el shader para fotogrametría (UNLIT + Iluminación suave)
+
+En la imagen estás usando fotogrametría urbana. Cuando le aplicas luz direccional (PBR) o filtros agresivos de detección de bordes, los triángulos irregulares generan esos contornos blancos y manchas negras. Usa LightingModel.UNLIT para preservar el 100 % de los detalles y colores originales de la textura, regulando únicamente su exposición nocturna:
+javascript
+const cleanNightPhotogrammetryShader = new Cesium.CustomShader({
+  lightingModel: Cesium.LightingModel.UNLIT,
+  uniforms: {
+    u_nightExposure: {
+      type: Cesium.UniformType.FLOAT,
+      value: 0.38 // Baja la luminosidad sin aplastar los negros ni teñir de azul
+    },
+    u_windowThreshold: {
+      type: Cesium.UniformType.FLOAT,
+      value: 0.82 // Solo enciende las partes naturalmente muy claras (ventanas/letreros)
+    },
+    u_windowGlow: {
+      type: Cesium.UniformType.FLOAT,
+      value: 1.4
+    }
+  },
+  fragmentShaderText: `
+    void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+      vec3 origColor = material.diffuse;
+
+      // 1. Mantener el color original (árboles verdes, fachadas, carreteras) con exposición nocturna
+      vec3 nightBase = origColor * u_nightExposure;
+
+      // 2. Suavizar negros profundos (levanta ligeramente las sombras para no perder detalle)
+      nightBase = max(nightBase, origColor * 0.14);
+
+      // 3. Iluminar suavemente solo los puntos muy claros de la textura original
+      float luminance = dot(origColor, vec3(0.2126, 0.7152, 0.0722));
+      float lightMask = smoothstep(u_windowThreshold, 0.98, luminance);
+      vec3 warmLight = mix(origColor, vec3(1.0, 0.88, 0.7), 0.45);
+
+      material.diffuse = nightBase + (warmLight * lightMask * u_windowGlow);
+    }
+  `
+});
+
+tileset.customShader = cleanNightPhotogrammetryShader;
+Usa el código con precaución.
+
+2. Elimina los bordes blancos del Post-Procesamiento (Bloom y AA)
+
+Esos bordes blancos brillantes alrededor de cada edificio y ventana aparecen cuando bloom.uniforms.contrast está muy alto (por ejemplo en 128) o falta suavizado de bordes. Cambia tu configuración de post-procesamiento por valores suaves:
+javascript
+// 1. Activar MSAA y FXAA para eliminar los dientes de sierra y bordes pixelados
+viewer.scene.msaaSamples = 4;
+viewer.scene.postProcessStages.fxaa.enabled = true;
+
+// 2. Configurar un Bloom sutil y realista (sin contraste artificial)
+const bloom = viewer.scene.postProcessStages.bloom;
+bloom.enabled = true;
+bloom.uniforms.glowOnly = false;
+bloom.uniforms.contrast = 25;     // Antes estaba demasiado alto y creaba bordes blancos
+bloom.uniforms.brightness = -0.15;
+bloom.uniforms.delta = 1.0;
+bloom.uniforms.sigma = 2.5;
+Usa el código con precaución.
+(Nota: Si no usas luces emisivas muy intensas, puedes incluso probar bloom.enabled = false; para comprobar qué tan nítida se ve la ciudad sin halos).
+
+3. Suaviza el horizonte y el cielo nocturno
+
+En tu captura el cielo es un negro sólido (#000000) que corta bruscamente con el horizonte. En la vida real, una ciudad iluminada tiene un halo atmosférico suave en el horizonte:
+javascript
+// Evitar sombras duras del sol en el terreno y edificios
+viewer.shadows = false;
+
+// Mantener la atmósfera visible pero en modo noche/crepúsculo profundo
+viewer.scene.skyAtmosphere.show = true;
+viewer.scene.skyAtmosphere.brightnessShift = -0.65;
+viewer.scene.skyAtmosphere.saturationShift = -0.2;
+
+// Niebla nocturna sutil para integrar el horizonte de la ciudad con el cielo
+viewer.scene.fog.enabled = true;
+viewer.scene.fog.density = 0.00018;
+viewer.scene.fog.minimumBrightness = 0.08;
+Usa el código con precaución.

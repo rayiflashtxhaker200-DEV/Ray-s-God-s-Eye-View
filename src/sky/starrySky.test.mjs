@@ -8,6 +8,7 @@ import {
   StarrySky,
   computeSkyRotation,
   isSkyRotationCurrent,
+  normalizeSkyQuality,
 } from './starrySky.js';
 
 const close = (actual, expected, epsilon = 1e-9) =>
@@ -197,4 +198,56 @@ test('a render update uploads six opaque black environment faces only once', () 
     if (!sky.isDestroyed()) sky.destroy();
     Cesium.ContextLimits._maximumCubeMapSize = previous;
   }
+});
+
+test('StarrySky adapts cubemap resolution, mipmaps, and star magnitude budget to performance profile', () => {
+  const low = normalizeSkyQuality({ isLowSpec: true });
+  assert.deepEqual(low, {
+    quality: 'low',
+    textureMaxSize: 512,
+    generateMipmap: false,
+    starLimitMagnitude: 4.8,
+  });
+  const high = normalizeSkyQuality({ isLowSpec: false });
+  assert.deepEqual(high, {
+    quality: 'high',
+    textureMaxSize: 1024,
+    generateMipmap: true,
+    starLimitMagnitude: 6.5,
+  });
+
+  let renders = 0;
+  const sky = new StarrySky({
+    requestRender: () => (renders += 1),
+    qualityProfile: { isLowSpec: false },
+  });
+  sky._rawStarPack = {
+    stars: [0, 0, -1.46, 0, 90, 45, 5.8, 0.5],
+  };
+  sky._rawFaceImages = { positiveX: { width: 1024, height: 1024 } };
+  let cubeMapDestroyed = 0;
+  sky._milkyWayCubeMap = {
+    destroy() {
+      cubeMapDestroyed += 1;
+      return undefined;
+    },
+  };
+
+  // Same profile triggers no redundant rebuild
+  assert.equal(sky.setQualityProfile({ isLowSpec: false }), false);
+  assert.equal(renders, 0);
+
+  // Switching to low-spec Ahorro profile rebuilds star vertex budget and marks cubemap for re-upload
+  assert.equal(sky.setQualityProfile({ isLowSpec: true }), true);
+  assert.equal(sky._starData.count, 1);
+  assert.equal(cubeMapDestroyed, 1);
+  assert.equal(sky._faceImages, sky._rawFaceImages);
+  assert.equal(renders, 1);
+
+  // Switching back to high restores full star budget
+  assert.equal(sky.setQualityProfile({ isLowSpec: false }), true);
+  assert.equal(sky._starData.count, 2);
+  assert.equal(renders, 2);
+
+  sky.destroy();
 });

@@ -127,6 +127,9 @@ export class DisplayBindings {
         modelModeButtons: this._models3dBtn ? this._models3dModeBtns : [],
         globe3dButton: this._globe3dBtn,
         buildings3dButton: this._buildings3dBtn,
+        nightMapButton: this._nightMapBtn,
+        nightColorFilterButton: this._nightColorFilterBtn,
+        dayNightCycleButton: this._dayNightCycleBtn,
       },
       actions: {
         setStyle: (style) => this.setStyle(style, { userInitiated: true }),
@@ -224,6 +227,9 @@ export class DisplayBindings {
         setModelsMode: (mode) => this._setModels3dMode(mode),
         toggleGlobe3d: () => this.toggleGlobe3d?.(),
         toggleBuildings3d: () => this.toggleBuildings3d?.(),
+        toggleNightMap: () => this.toggleNightMap?.(),
+        toggleNightColorFilter: () => this.toggleNightColorFilter?.(),
+        toggleDayNightCycle: () => this.toggleDayNightCycle?.(),
       },
     });
   }

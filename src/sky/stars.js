@@ -106,15 +106,30 @@ export function bvToRgb(bv) {
 }
 
 /** Decode a catalogue pack into interleaved vertex data, `STAR_VERTEX_FLOATS` per star. */
-export function buildStarVertices({ stars }) {
-  const count = stars.length / 4;
+export function buildStarVertices(
+  { stars },
+  { maxMagnitude = Number.POSITIVE_INFINITY } = {},
+) {
+  const total = stars.length / 4;
+  const filterByMag = Number.isFinite(maxMagnitude);
+  const selectedIndices = filterByMag ? [] : null;
+  if (filterByMag) {
+    for (let i = 0; i < total; i++) {
+      const vmag = stars[i * 4 + 2];
+      if (!Number.isFinite(vmag) || vmag <= maxMagnitude) {
+        selectedIndices.push(i);
+      }
+    }
+  }
+  const count = filterByMag ? selectedIndices.length : total;
   const vertices = new Float32Array(count * STAR_VERTEX_FLOATS);
-  for (let i = 0; i < count; i++) {
-    const [raDeg, decDeg, vmag, bv] = stars.slice(i * 4, i * 4 + 4);
+  for (let outIdx = 0; outIdx < count; outIdx++) {
+    const srcIdx = filterByMag ? selectedIndices[outIdx] : outIdx;
+    const [raDeg, decDeg, vmag, bv] = stars.slice(srcIdx * 4, srcIdx * 4 + 4);
     const { sigmaPx, alpha } = starAppearance(vmag);
     vertices.set(
       [...raDecToUnitVector(raDeg, decDeg), sigmaPx, ...bvToRgb(bv), alpha],
-      i * STAR_VERTEX_FLOATS,
+      outIdx * STAR_VERTEX_FLOATS,
     );
   }
   return { count, vertices };

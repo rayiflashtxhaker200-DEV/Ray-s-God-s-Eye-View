@@ -1,6 +1,7 @@
 import * as Cesium from 'cesium';
 import { applyModelAtmosphereWorkaround } from './atmosphereCompat.js';
 import { StarrySky } from '../sky/starrySky.js';
+import { applySkyAtmosphereDefaults } from '../sky/skyAtmosphereSetup.js';
 import {
   getOptimalPerformanceProfile,
   applyHardwareOptimizations,
@@ -125,7 +126,7 @@ export function applicationViewerOptions(creditContainer) {
     baseLayer: false,
     // Replaces the blocky Tycho-2 default. An option, not `skyBox: false`,
     // which would also stop CesiumWidget from creating the Sun and Moon.
-    skyBox: new StarrySky(),
+    skyBox: new StarrySky({ qualityProfile: profile }),
     creditContainer,
     msaaSamples: profile.msaaSamples,
     shadows: profile.shadowsEnabled,
@@ -160,10 +161,8 @@ export function createApplicationViewer({ container, creditContainer }) {
     // render loop. See app/atmosphereCompat.js.
     applyModelAtmosphereWorkaround(viewer.scene);
     viewer.scene.globe.show = false;
-    viewer.scene.skyAtmosphere.show = true;
-    viewer.scene.skyAtmosphere.atmosphereLightIntensity = 18;
-    viewer.scene.skyAtmosphere.saturationShift = -0.12;
-    viewer.scene.skyAtmosphere.brightnessShift = -0.08;
+    const profile = getOptimalPerformanceProfile();
+    applySkyAtmosphereDefaults(viewer, profile);
     applyHardwareOptimizations(viewer);
     if (typeof viewer.canvas?.addEventListener === 'function') {
       viewer.canvas.addEventListener(

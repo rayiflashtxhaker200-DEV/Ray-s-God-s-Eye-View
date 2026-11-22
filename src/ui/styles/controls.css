@@ -702,13 +702,15 @@ html:not([lang='en']) .pp-slider-row > .pp-slider-mini-label {
 
 .visual-3d-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
 }
 
 .visual-3d-btn {
   align-items: center;
   min-height: 26px;
+  padding: 4px 5px;
+  font-size: 8.5px;
 }
 
 .visual-3d-btn .visual-3d-icon {
@@ -721,9 +723,19 @@ html:not([lang='en']) .pp-slider-row > .pp-slider-mini-label {
   cursor: progress;
 }
 
+.visual-cycle-btn {
+  width: 100%;
+  justify-content: center;
+  gap: 6px;
+}
+
 @media (max-width: 620px) {
   .map-stack-chip-row {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .visual-3d-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

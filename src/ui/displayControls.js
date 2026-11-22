@@ -27,6 +27,9 @@ export function bindDisplayControls({ elements, actions }) {
     ['modelsButton', 'toggleModels'],
     ['globe3dButton', 'toggleGlobe3d'],
     ['buildings3dButton', 'toggleBuildings3d'],
+    ['nightMapButton', 'toggleNightMap'],
+    ['nightColorFilterButton', 'toggleNightColorFilter'],
+    ['dayNightCycleButton', 'toggleDayNightCycle'],
   ])
     listen(elements[name], 'click', action);
   for (const [name, action] of [

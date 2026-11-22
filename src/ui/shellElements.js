@@ -220,5 +220,8 @@ export function readShellElements(document = globalThis.document) {
     _models3dModeRow: document.getElementById('models3d-mode-row'),
     _globe3dBtn: document.getElementById('globe3d-toggle'),
     _buildings3dBtn: document.getElementById('buildings3d-toggle'),
+    _nightMapBtn: document.getElementById('night-map-toggle'),
+    _nightColorFilterBtn: document.getElementById('night-color-filter-toggle'),
+    _dayNightCycleBtn: document.getElementById('day-night-cycle-toggle'),
   };
 }

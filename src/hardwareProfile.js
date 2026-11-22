@@ -173,6 +173,11 @@ export function getOptimalPerformanceProfile() {
     groundAtmosphereEnabled: !lowSpec,
     waterEffectEnabled: !lowSpec,
     perFragmentAtmosphere: !lowSpec,
+    // Sky texture & starfield quality: 512px faces (no mipmaps, 6 MB VRAM) + mag<=4.8 (~1.3k stars) on Ahorro vs 1024px mipmapped (~33.5 MB) + 9,096 stars
+    skyQuality: lowSpec ? 'low' : 'high',
+    skyTextureMaxSize: lowSpec ? 512 : 1024,
+    skyGenerateMipmap: !lowSpec,
+    skyStarLimitMagnitude: lowSpec ? 4.8 : 6.5,
     // Distance fog culling to avoid fetching distant horizon tiles on 1-ch DDR3-1066
     fogDensity: lowSpec ? 0.00045 : 0.0001,
     fogScreenSpaceErrorFactor: lowSpec ? 4.0 : 2.0,
@@ -278,12 +283,16 @@ export function applyHardwareOptimizations(viewer, tileset = null) {
     if ('highDynamicRange' in scene) {
       scene.highDynamicRange = profile.hdrEnabled;
     }
-    if ('sunBloom' in scene && profile.isLowSpec) {
-      scene.sunBloom = false;
+    if ('sunBloom' in scene) {
+      scene.sunBloom = !profile.isLowSpec;
     }
 
     if (scene.postProcessStages?.fxaa) {
       scene.postProcessStages.fxaa.enabled = profile.fxaaEnabled;
+    }
+
+    if (scene.skyBox && typeof scene.skyBox.setQualityProfile === 'function') {
+      scene.skyBox.setQualityProfile(profile);
     }
 
     if (scene.skyAtmosphere) {
@@ -356,7 +365,7 @@ export function applyHardwareOptimizations(viewer, tileset = null) {
     }
 
     console.info(
-      `[HardwareProfile] Applied (${profile.profileTier}): fps=${profile.targetFrameRate}, res=${profile.resolutionScale}, msaa=${profile.msaaSamples}, fxaa=${profile.fxaaEnabled}, tileCache=${Math.round(profile.tileCacheBytes / 1024 / 1024)}MB (+${Math.round(profile.maximumCacheOverflowBytes / 1024 / 1024)}MB), sse=${profile.maximumScreenSpaceError}, tilesets=${updatedTilesets.size}`,
+      `[HardwareProfile] Applied (${profile.profileTier}): fps=${profile.targetFrameRate}, res=${profile.resolutionScale}, msaa=${profile.msaaSamples}, fxaa=${profile.fxaaEnabled}, sky=${profile.skyQuality}(${profile.skyTextureMaxSize}px,m<=${profile.skyStarLimitMagnitude}), tileCache=${Math.round(profile.tileCacheBytes / 1024 / 1024)}MB (+${Math.round(profile.maximumCacheOverflowBytes / 1024 / 1024)}MB), sse=${profile.maximumScreenSpaceError}, tilesets=${updatedTilesets.size}`,
     );
   } catch (err) {
     console.warn('[HardwareProfile] Failed to apply optimizations:', err);

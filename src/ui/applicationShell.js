@@ -23,6 +23,7 @@ import { LocationNavigation } from './locationNavigation.js';
 import { bindCameraOrientationControls } from './cameraOrientationControls.js';
 import { createMapSourceControls } from './mapSource.js';
 import { createScene3dControls } from '../maps/scene3dControls.js';
+import { createNightMapControls } from '../maps/nightMapControls.js';
 import { createFramePauseControls } from './framePauseControls.js';
 import { isEmbeddedInline } from '../app/embed.js';
 import { STYLES } from './effects.js';
@@ -557,6 +558,11 @@ export class StyleManager extends ShellFacade {
         _setModels3dMode: (...args) => this._setModels3dMode(...args),
         toggleGlobe3d: () => this._scene3dControls?.toggleGlobe3d?.(),
         toggleBuildings3d: () => this._scene3dControls?.toggleBuildings3d?.(),
+        toggleNightMap: () => this._nightMapControls?.toggleNightMap?.(),
+        toggleNightColorFilter: () =>
+          this._nightMapControls?.toggleColorFilter?.(),
+        toggleDayNightCycle: () =>
+          this._nightMapControls?.toggleDayNightCycle?.(),
       },
       readState: () => ({
         shareLinkManager: this.shareLinkManager,
@@ -576,6 +582,7 @@ export class StyleManager extends ShellFacade {
     this._initUI();
     this._initMapStackControl();
     this._initScene3dControls();
+    this._initNightMapControls();
     this._initPanelChrome();
     this._panelNavigation = new PanelNavigation({
       ui: this._ui,
@@ -883,6 +890,31 @@ export class StyleManager extends ShellFacade {
 
   setBuildings3dEnabled(enabled, options) {
     return this._scene3dControls?.setBuildings3dEnabled?.(enabled, options);
+  }
+
+  _initNightMapControls() {
+    this._nightMapControls?.dispose();
+    this._nightMapControls = createNightMapControls({
+      viewer: this.viewer,
+      mapStackController: this.mapStackController,
+      requestRender: this.services.governorRequestRender,
+      nightMapButton: this._nightMapBtn,
+      colorFilterButton: this._nightColorFilterBtn,
+      dayNightCycleButton: this._dayNightCycleBtn,
+      showToast: (message) => this._showToast(message),
+    });
+  }
+
+  setNightMapEnabled(enabled, options) {
+    return this._nightMapControls?.setNightMapEnabled?.(enabled, options);
+  }
+
+  setNightColorFilterEnabled(enabled, options) {
+    return this._nightMapControls?.setColorFilterEnabled?.(enabled, options);
+  }
+
+  setDayNightCycleEnabled(enabled, options) {
+    return this._nightMapControls?.setDayNightCycleEnabled?.(enabled, options);
   }
 
   /**
@@ -1412,6 +1444,10 @@ export class StyleManager extends ShellFacade {
         buildings3d: false,
         loadingBuildings: false,
       },
+      nightMap: this._nightMapControls?.getState?.() || {
+        nightMap: false,
+        colorFilter: false,
+      },
       framesPaused: Boolean(this._framePauseControls?.isPaused?.()),
       recording: !!this._recording._recordingMode,
       cleanView: document.body.classList.contains('ui-clean-view'),
@@ -1815,6 +1851,8 @@ export class StyleManager extends ShellFacade {
     this._displayBindings.destroy();
     this._scene3dControls?.dispose();
     this._scene3dControls = null;
+    this._nightMapControls?.dispose();
+    this._nightMapControls = null;
     this._framePauseControls?.dispose();
     this._framePauseControls = null;
     this._mapSourceControls?.destroy();

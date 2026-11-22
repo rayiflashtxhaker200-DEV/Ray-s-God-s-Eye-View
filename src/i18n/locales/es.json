@@ -3205,5 +3205,17 @@
   "3D buildings disabled": "Edificios 3D desactivados",
   "Loading 3D buildings…": "Cargando edificios 3D…",
   "Could not load 3D buildings": "No se pudieron cargar los edificios 3D",
-  "3D buildings unavailable without a Cesium ion token": "Edificios 3D no disponibles sin un token de Cesium ion"
+  "3D buildings unavailable without a Cesium ion token": "Edificios 3D no disponibles sin un token de Cesium ion",
+  "NIGHT MAP": "MAPA NOCHE",
+  "COLOR FILTER": "FILTRO COLOR",
+  "Toggle night map lighting": "Activar o desactivar mapa de noche con iluminación",
+  "Toggle night color filter": "Activar o desactivar filtro de color nocturno",
+  "Night map enabled": "Mapa de noche activado",
+  "Night map disabled": "Mapa de noche desactivado",
+  "Night color filter enabled": "Filtro de color nocturno activado",
+  "Night color filter disabled": "Filtro de color nocturno desactivado",
+  "DAY-NIGHT CYCLE": "CICLO DÍA-NOCHE",
+  "Toggle animated day-night sky cycle": "Activar o desactivar ciclo animado día-noche en el cielo",
+  "Day-night cycle enabled": "Ciclo día-noche activado",
+  "Day-night cycle disabled": "Ciclo día-noche desactivado"
 }

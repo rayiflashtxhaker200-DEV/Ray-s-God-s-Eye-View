@@ -128,3 +128,12 @@ test('sky assets stay inside the 5 MB budget', () => {
   );
   assert.ok(total < 5 * 1024 * 1024, `${total} bytes`);
 });
+
+test('maxMagnitude filters fainter stars for low-spec performance profiles', () => {
+  const pack = JSON.parse(readFileSync(skyFile('bright_stars.json'), 'utf8'));
+  const full = buildStarVertices(pack);
+  const lowSpec = buildStarVertices(pack, { maxMagnitude: 4.8 });
+  assert.equal(full.count, 9096);
+  assert.ok(lowSpec.count > 500 && lowSpec.count < 2500, `got ${lowSpec.count}`);
+  assert.equal(lowSpec.vertices.length, lowSpec.count * STAR_VERTEX_FLOATS);
+});

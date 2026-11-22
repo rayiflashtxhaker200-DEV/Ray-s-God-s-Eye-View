@@ -593,6 +593,10 @@ test('provides hardware optimization profile tuned for AMD E-350 (2C 1.6GHz) and
   assert.equal(profile.maximumCacheOverflowBytes, 64 * 1024 * 1024);
   assert.ok(profile.maximumScreenSpaceError >= 32);
   assert.ok(profile.globeTileCacheSize <= 24);
+  assert.equal(profile.skyQuality, 'low');
+  assert.equal(profile.skyTextureMaxSize, 512);
+  assert.equal(profile.skyGenerateMipmap, false);
+  assert.equal(profile.skyStarLimitMagnitude, 4.8);
 });
 
 test('applyHardwareOptimizations propagates low-spec limits to viewer, FXAA, and active scene tilesets', () => {
@@ -625,6 +629,12 @@ test('applyHardwareOptimizations propagates low-spec limits to viewer, FXAA, and
       },
       postProcessStages: {
         fxaa: { enabled: true },
+      },
+      skyBox: {
+        appliedProfile: null,
+        setQualityProfile(profile) {
+          this.appliedProfile = profile;
+        },
       },
       skyAtmosphere: { perFragmentAtmosphere: true },
       globe: {
@@ -663,5 +673,7 @@ test('applyHardwareOptimizations propagates low-spec limits to viewer, FXAA, and
   assert.equal(tilesetA.skipLevels, 2);
   assert.equal(tilesetB.cacheBytes, 160 * 1024 * 1024);
   assert.equal(tilesetB.maximumScreenSpaceError, 32);
+  assert.equal(mockViewer.scene.sunBloom, false);
+  assert.equal(mockViewer.scene.skyBox.appliedProfile.skyTextureMaxSize, 512);
   assert.equal(renderCalls, 1);
 });

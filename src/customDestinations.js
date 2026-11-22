@@ -1368,20 +1368,21 @@ export function mountPcPairingAndDestinationsPanel(viewer) {
       item.el?.setAttribute('aria-pressed', String(isSelected));
     }
     const cacheMb = Math.round(prof.tileCacheBytes / 1024 / 1024);
+    const skyPx = prof.skyTextureMaxSize || (prof.isLowSpec ? 256 : 1024);
     if (mode === 'low') {
       setInlineFeedback(
         hwFeedback,
-        `Ahorro 30 FPS activo (AMD E-350 / HD 6310): ${prof.targetFrameRate} FPS · escala ${prof.resolutionScale}x · caché ${cacheMb} MB · MSAA/FXAA desactivados.`,
+        `Ahorro 30 FPS activo (AMD E-350 / HD 6310): ${prof.targetFrameRate} FPS · escala ${prof.resolutionScale}x · caché ${cacheMb} MB · cielo ${skyPx}px · MSAA/FXAA desactivados.`,
       );
     } else if (mode === 'high') {
       setInlineFeedback(
         hwFeedback,
-        `Alta calidad activa: ${prof.targetFrameRate} FPS · escala ${prof.resolutionScale}x · caché ${cacheMb} MB · MSAA ${prof.msaaSamples}x.`,
+        `Alta calidad activa: ${prof.targetFrameRate} FPS · escala ${prof.resolutionScale}x · caché ${cacheMb} MB · cielo ${skyPx}px · MSAA ${prof.msaaSamples}x.`,
       );
     } else {
       setInlineFeedback(
         hwFeedback,
-        `Automático (${prof.isLowSpec ? 'perfil ligero 30 FPS' : 'hardware estándar 60 FPS'}): ${prof.targetFrameRate} FPS · escala ${prof.resolutionScale}x · caché ${cacheMb} MB.`,
+        `Automático (${prof.isLowSpec ? 'perfil ligero 30 FPS' : 'hardware estándar 60 FPS'}): ${prof.targetFrameRate} FPS · escala ${prof.resolutionScale}x · caché ${cacheMb} MB · cielo ${skyPx}px.`,
       );
     }
   }
